@@ -1,0 +1,237 @@
+PROJECT OVERVIEW
+===============
+Sasha – Adaptive AI Interviewer
+A resume‑driven, agentic AI interviewer that behaves like a senior technical recruiter at top MNCS (Google, Meta, Adobe, Microsoft, Amazon).
+It parses the candidate’s résumé, detects the target role, asks follow‑up questions grounded in the résumé, evaluates answers on multiple dimensions (ownership, depth, impact, learning, communication, integrity, linguistic consistency, head‑eye signals), and generates a PDF report with a hire/no‑hire recommendation.
+
+KEY CONSTRAINTS & PREFERENCES
+------------------------------
+- No Docker/Kubernetes in the core logic (optional MLOps/hot‑stack extras can be added later for résumé building).
+- Core questioning uses a static competency bank + prompt‑engineered LLM (no hard‑coded question lists, no fine‑tuning).
+- Role detection uses a lightweight ML model (Logistic Regression + TF‑IDF) trained on synthetic data derived from role‑signal definitions – avoids hard‑coding while staying explainable.
+- Linguistic analysis runs inference‑only models (Whisper tiny, DistilGPT‑2, Sentence‑Transformer) for perplexity, disfluency, and consistency; optional head‑eye tracking via MediaPipe/Yolo.
+- LLM backend: Grok API (OpenAI‑compatible) – can be swapped with Ollama, HuggingFace Inference, or a local vLLM/TGI server.
+- Frontend: circular, voice‑first UI named “Sasha” (see UI prompt at the end).
+- Output: PDF report with competency radar, integrity signals, strengths/areas, verbatim highlights, and summary table.
+
+ARCHITECTURE (textual diagram)
+------------------------------
+[ Résumé (PDF/DOCX) ]
+          │
+          ▼
+[ Resume Parser ] → extracts plain text, years of experience, skill list, project bullets
+          │
+          ▼
+[ Role Detector ] → LogisticRegression model predicts role (SDE, ML Engineer, Gen‑AI Focus, Data Science) with confidence
+          │
+          ▼
+[ Competency Bank (YAML) ] → static list of competencies & follow‑up templates per role
+          │
+          ▼
+[ Linguistic Analyzer ] → computes:
+                         • Perplexity (DistilGPT‑2)
+                         • Disfluency rate (regex fillers)
+                         • Consistency (TF‑IDF cosine or FAISS‑enhanced sentence similarity)
+                         • Optional head‑pose / gaze‑off‑screen / object presence (MediaPipe + Yolo)
+          │
+          ▼
+[ Interviewer Agent (LLM) ] → receives:
+                         • Detected role & confidence
+                         • Resume summary (skills, projects)
+                         • Interview history (Q/A pairs)
+                         • Linguistic features
+                         • Selected competency (from bank or ML selector)
+          │
+          ▼
+  LLM (Grok) outputs JSON:
+          {
+            "assessment": {ownership:0‑10, depth:0‑10, impact:0‑10, learning:0‑10, communication:0‑10},
+            "decision": {action: "follow_up"|"move_on"|"end_early", reasoning: "..."},
+            "next_question": "supportive, probing question derived from competency template"
+          }
+          │
+          ▼
+[ Main Loop ] → prints/plays Sasha’s question, captures user answer (console or STT), runs analyzer, feeds to agent, repeats until decision = end_early or max turns reached.
+          │
+          ▼
+[ Report Generator ] → Jinja2 HTML template + WeasyPrint → PDF containing:
+                         • Experience summary (years, detected role, level)
+                         • Competency radar (average scores)
+                         • Integrity signals (perplexity, disfluency, consistency, optional head‑eye stats)
+                         • Strengths / Areas for improvement
+                         • Verbatim highlights
+                         • Turn‑by‑turn table
+
+OPTIONAL ENHANCEMENTS (plug‑and‑play, no core changes)
+------------------------------------------------------
+- FAISS‑based similarity for resume‑answer consistency (sentence‑level inner product index).
+- ML Competency Selector (trained on synthetic feature→action data) to pick the next competency.
+- MLOps stack: Triton Inference Server (for Whisper/DistilGPT‑2 embeddings), MLflow tracking (experiments, models), Prometheus + Grafana (latency, request counts).
+- Dockerfiles / Helm charts (kept separate; not required to run core).
+
+FILE LIST & PURPOSE
+-------------------
+- role_signals.yaml          → keyword / project‑signal definitions per role (used to generate synthetic training data).
+- competency_bank.yaml       → static competencies & follow‑up question templates (derived from public interview sources).
+- resume_parser.py           → extracts text, years, experience level, skills, projects from PDF/DOCX (pdfminer.six, python‑docx, spaCy).
+- signal_detector.py         → ML role detector: loads/saves LogisticRegression model + TF‑IDF vectorizer; trains on synthetic data from role_signals.yaml.
+- analyzer.py                → linguistic analyzer: perplexity (DistilGPT‑2), disfluency (regex), consistency (TF‑IDF cosine **or** FAISS‑enhanced sentence similarity); placeholders for head‑eye tracking.
+- interviewer_agent.py       → Grok API client; loads competency bank; optionally loads ML competency selector; builds LLM prompt; returns JSON assessment/decision/next_question.
+- main.py                    → orchestrates interview loop: parse → detect role → loop: ask → get answer → analyze → agent → speak/print next question → update history → stop condition.
+- report_generator.py        → Jinja2 template + WeasyPrint → PDF report.
+- requirements.txt           → pinned dependencies (see below).
+- role_detector_model.pkl, tfidf_vectorizer.pkl, competency_selector.pkl → persisted ML artifacts (generated on first run).
+- (Optional) faiss_index/    → folder where FAISS index is stored if used.
+
+SETUP & RUNNING
+---------------
+1. Clone / create folder:
+   `mkdir -p "$HOME/Desktop/ai interveiwer" && cd "$HOME/Desktop/ai interveiwer"`
+
+2. Copy all files listed above into this folder.
+
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+   (`requirements.txt` now includes: pdfminer.six, python-docx, spacy, transformers, sentence-transformers, scikit-learn, numpy, ollama, openai, faiss-cpu, jinja2, weasyprint, pytest.)
+
+4. Download spaCy model:
+   `python -m spacy download en_core_web_sm`
+
+5. Set LLM backend:
+   - **Grok API (recommended)**: export `GROK_API_KEY="your_key_here"`
+   - **Ollama fallback**: ensure Ollama is running (`ollama serve`) and has the model pulled (`ollama pull phi-3-mini`). The agent will fall back to Ollama if Grok key missing.
+
+6. (Optional) Build FAISS index for consistency: the first run of `analyzer.py` will attempt to create a FAISS index from the résumé sentences; if `faiss-cpu` is not installed it falls back to plain cosine similarity.
+
+7. Run an interview:
+   ```bash
+   python main.py --resume path/to/resume.pdf
+   ```
+   - Use `--help` for additional arguments (max turns, audio STT toggle, etc.).
+
+8. After the interview ends (or when you choose “End interview” in the UI), a PDF report appears at `./reports/interview_<timestamp>.pdf`.
+
+HOW IT WORKS – STEP BY STEP
+---------------------------
+1. **Resume ingestion** – `resume_parser.py` reads PDF/DOCX, returns plain text, extracts:
+   - Total years of experience (via date range parsing).
+   - Experience level: fresher (<1 yr), junior (1‑3), mid (3‑6), senior (>6).
+   - Skill set (tokenised, lower‑cased).
+   - Project bullets (sentences).
+
+2. **Role detection** – `signal_detector.py`:
+   - Builds synthetic training sentences for each role by concatenating weighted signals from `role_signals.yaml`.
+   - Trains a LogisticRegression model on TF‑IDF vectors of those sentences (labels = role).
+   - Persists model & vectorizer; on subsequent runs loads them (training occurs only once unless files are deleted).
+   - Predicts role with probability scores; the highest‑probability role is used (fallback to rule‑based keyword match if model files missing).
+
+3. **Linguistic analysis** – `analyzer.py` receives résumé text and candidate answer:
+   - Perplexity: average token‑level surprisal from DistilGPT‑2 (lower → more AI‑like).
+   - Disfluency rate: count of fillers (“um”, “uh”, “like”, “you know”) divided by word count.
+   - Consistency:
+        * If FAISS available → builds inner‑product index over sentence‑level SBERT embeddings of the résumé (normalized); encodes the answer, queries top‑1 similarity (cosine via inner product).
+        * Else → cosine similarity of whole‑text SBERT embeddings.
+   - Optional head‑eye stubs: ready to accept MediaPipe Face Mesh outputs (gaze vector, head pose angles) and YoloV8n object detections; currently returns zeros if not wired.
+
+4. **Interviewer agent** – `interviewer_agent.py`:
+   - Loads `competency_bank.yaml`.
+   - Optionally loads `competency_selector.pkl` (ML model mapping features → competency index).
+   - Constructs a prompt containing: system instructions (supportive tone, JSON output, wait for full answer), detected role & confidence, resume summary, recent Q/A history, linguistic features, selected competency & its template placeholders.
+   - Calls Grok API (`openai.OpenAI` with base_url pointing to Grok endpoint) with `response_format={"type":"json_object"}`.
+   - Parses returned JSON: assessment dict (0‑10 per dimension), decision object (action, reasoning), and next_question string (filled template).
+   - If LLM fails or returns invalid JSON, falls back to rule‑based: pick next competency from bank, fill template with resume keywords, produce a generic supportive prompt.
+
+5. **Main loop** – `main.py`:
+   - Prints/plays Sasha’s question (via console `print`; replace with TTS call if desired).
+   - Waits for user answer (console input; can be swapped with Whisper STT for real microphone).
+   - Feeds answer + résumé text to `analyzer.py`.
+   - Sends features + history to `interviewer_agent.py`.
+   - Updates transcript, accumulates dimension averages, tracks integrity flags.
+   - Continues until `decision.action` == `"end_early"` or max_turns reached (default 8).
+
+6. **Report generation** – `report_generator.py`:
+   - Jinja2 template (`report_template.html`) receives:
+        * Experience summary block.
+        * Radar chart data (ownership, depth, impact, learning, communication averages).
+        * Integrity signals table (perplexity, disfluency, consistency, head‑eye stats).
+        * Strengths / Areas (derived from dimension thresholds).
+        * Verbatim highlights (top‑scoring answers).
+        * Full turn‑by‑turn table (question, answer, scores).
+   - WeasyPrint converts HTML to PDF, stored in `./reports/`.
+
+OPTIONAL FRONTEND (Sasha UI) – PROMPT FOR LOVEABLE / BOLT
+----------------------------------------------------------
+Use the following description to generate the frontend UI (HTML/CSS/JS) that will interact with the backend via simple HTTP endpoints (or direct function calls if kept local).
+
+**Frontend Prompt**
+Create a modern, voice‑first web interface for the AI interviewer named **Sasha**. The experience must feel like a natural conversation with a thoughtful human colleague—not a robotic AI tool. Follow these visual and interaction guidelines:
+
+- **Overall Layout**
+  - Single‑page, centered layout, responsive (mobile & desktop).
+  - Background: soft radial gradient (deep navy → muted teal) with a very slow, subtle animated pulse to convey a listening ambience.
+
+- **Central Interaction Element**
+  - Large semi‑transparent circle (≈60‑70 vh diameter) at screen center.
+  - Thin glowing ring around the circle changes color with Sasha’s state:
+      * Idle/Listening – cyan‑green glow.
+      * Thinking/Generating follow‑up – soft blue pulse.
+      * Speaking (TTS) – warm amber pulse that expands/contracts slightly with voice amplitude.
+  - Inside the circle: a minimalist waveform that expands/contracts in real‑time with the user’s mic volume (no robot icons, no circuitry).
+
+- **Transcript Area**
+  - Directly beneath the circle, a horizontally‑centered, rounded‑corner box (max‑width 600px).
+  - Sasha’s questions appear in lighter text (#6c757d) left‑aligned.
+  - User’s answers appear in slightly darker, selectable font (#212529) left‑aligned.
+  - While Sasha is formulating the next question, show a subtle typing indicator (three animated dots) after the last bot line.
+
+- **Controls (hover‑only, lower edge of circle)**
+  - Mute microphone (speaker‑slash).
+  - End interview (stop‑square).
+  - View report (chart‑bar) – opens the generated PDF in a modal or new tab when interview finishes.
+  - Icons share the line weight of the central ring, have a soft drop‑shadow only when active.
+
+- **Typography & Spacing**
+  - Font family: **Inter** or **SF Pro Display** (clean sans‑serif).
+  - Base size 16 px, line‑height 1.6.
+  - Ample padding (24 px) around transcript box; central circle margin ≥32 px from viewport edges.
+
+- **Motion & Feedback**
+  - All transitions (color changes, circle expand/contract, icon fade‑in/out) use smooth CSS easing (`cubic-bezier(0.4,0,0.2,1)`) lasting 150‑250 ms.
+  - No harsh jumps or flickering; UI feels calm and responsive.
+
+- **Accessibility**
+  - Ensure WCAG AA contrast for text vs. background.
+  - Provide ARIA labels for mute, end, report icons.
+  - Support keyboard navigation (Tab to focus icons, Enter/Space to activate).
+
+- **Behavior**
+  - On start, Sasha greets the user by name (if available) with a short friendly prompt.
+  - After each user answer, UI briefly shows the “thinking” state while the backend processes the answer, then switches to speaking state and plays the follow‑up question via TTS (or displays text if TTS disabled).
+  - At interview end, the “View report” button becomes prominent; clicking it opens the PDF report (generated by the backend) in a modal or new tab.
+
+**Result**: A polished, circular, dynamic UI that feels like conversing with a thoughtful human interviewer named Sasha—clean, calm, free of overtly “AI‑looking” elements, yet clearly indicating when Sasha is listening, thinking, or speaking. Provide this description to Lovable/Bolt (or your preferred UI generator) to produce the frontend.
+
+SOURCES & REFERENCES (used to build competency bank & interview logic)
+-----------------------------------------------------------------------
+- Glassdoor, Levels.fyi, Blind, Indeed – real interview experiences.
+- Google “How We Hire” blog, Meta Engineering Interview Guide, Amazon Bar Raiser playbook, Adobe Tech Blog.
+- “Cracking the Coding Interview” (Gayle Laakmann McDowell).
+- “Elements of Programming Interviews”.
+- System Design Primer (GitHub – donnemartin/system‑design‑primer).
+- ML Interview Guide (Interview Query).
+- Data Science Interview Questions (Springboard).
+- Eightfold AI and Micro‑1 public samples.
+- Behavioral/Competency guides: STAR method worksheets (Harvard Career Services), Amazon Leadership Principles, Google “Googliness” rubric, Microsoft Core Technical Interview framework.
+- Research on interview validity: probing ownership, depth, impact, learning predicts on‑the‑job performance (e.g., Schmidt & Hunter, 1998; various HR studies).
+
+END OF FILE
+-----------  
+
+--- Latest Response (FAISS & Head‑Eye Tracking) ---
+FAISS: Yes – we added `faiss‑cpu` as an optional dependency and modified `analyzer.py` so that, when the package is installed, the consistency check builds a FAISS inner‑product index over sentence‑level SBERT embeddings of the résumé and uses it to compute similarity. If FAISS is not available, the code falls back to the original cosine‑similarity method.
+
+Head‑eye tracking: No – the current code does not include any head‑pose, gaze‑tracking, or object‑detection logic. `analyzer.py` contains only placeholder comments (and zero‑return stubs) indicating where such modules (e.g., MediaPipe Face Mesh or YOLOv8n) could be hooked in later, but no actual implementation or calls are present.
+
+--- End of file ---

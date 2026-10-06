@@ -1,0 +1,95 @@
+SDE:
+  skills:
+    - algorithms
+    - data structures
+    - system design
+    - APIs
+    - microservices
+    - distributed systems
+    - load balancer
+    - cache layer
+    - database optimization
+  projects:
+    - load balancer
+    - cache layer
+    - database optimization
+    - microservice
+    - URL shortener
+    - REST API
+    - gRPC service
+  weight: 1.0
+ML Engineer:
+  skills:
+    - model training
+    - feature engineering
+    - scikit-learn
+    - pandas
+    - experiment tracking
+    - AUC
+    - F1
+    - precision
+    - recall
+    - regression
+    - classification
+    - clustering
+  projects:
+    - churn prediction
+    - recommendation system
+    - fraud detection
+    - NLP classifier
+    - sentiment analysis
+    - image classification
+    - time series forecast
+  weight: 1.0
+Gen-AI Focus:
+  skills:
+    - LLM
+    - RAG
+    - fine-tuning
+    - prompt engineering
+    - agentic workflows
+    - LangChain
+    - LlamaIndex
+    - vector DB
+    - FAISS
+    - embedding
+    - hallucination
+    - token efficiency
+  projects:
+    - RAG pipeline
+    - LLM-powered chatbot
+    - fine-tuned LLM
+    - agent for task automation
+    - Retrieval-Augmented Generation
+    - LLM evaluation
+    - prompt optimization
+  weight: 1.5
+Data Science:
+  skills:
+    - statistics
+    - statistical modeling
+    - hypothesis testing
+    - A/B testing
+    - exploratory data analysis
+    - data wrangling
+    - data cleaning
+    - data visualization
+    - SQL
+    - NoSQL
+    - pandas
+    - NumPy
+    - matplotlib
+    - seaborn
+    - plotly
+    - Tableau
+    - Power BI
+  projects:
+    - sales forecasting
+    - customer segmentation
+    - market basket analysis
+    - dashboard creation
+    - data pipeline
+    - ETL process
+    - anomaly detection
+    - experimental analysis
+  weight: 1.0

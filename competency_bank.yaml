@@ -1,0 +1,153 @@
+SDE:
+  competencies:
+    - name: System Design
+      signals:
+        - system design
+        - microservices
+        - APIs
+        - distributed systems
+        - load balancing
+        - caching
+      follow_up_templates:
+        - "You mentioned designing [TECHNIQUE] for [TASK]. What were the key trade-offs you considered, and how did you decide on the final approach?"
+        - "How did you ensure scalability and fault tolerance in your [SYSTEM] design? What metrics did you use to evaluate it?"
+        - "If you had to redesign [SYSTEM] to handle 10x traffic, what would you change and why?"
+    - name: Problem Solving & Algorithms
+      signals:
+        - algorithms
+        - data structures
+        - time complexity
+        - space complexity
+        - optimization
+      follow_up_templates:
+        - "Walk me through how you approached the algorithmic challenge in [PROJECT]. What was your initial idea, and how did you improve it?"
+        - "What was the time and space complexity of your solution, and how did you verify it?"
+        - "Did you consider any alternative algorithms? Why did you reject them?"
+    - name: Communication & Collaboration
+      signals:
+        - communication
+        - teamwork
+        - documentation
+        - code review
+      follow_up_templates:
+        - "How did you ensure clear communication with your team during [PROJECT]?"
+        - "Can you give an example of a technical disagreement you had and how you resolved it?"
+        - "How do you approach writing documentation or comments for your code?"
+ML Engineer:
+  competencies:
+    - name: ML Fundamentals
+      signals:
+        - model training
+        - feature engineering
+        - overfitting
+        - underfitting
+        - bias-variance tradeoff
+        - cross-validation
+        - AUC
+        - F1
+        - precision
+        - recall
+      follow_up_templates:
+        - "Explain how you selected the features for your [MODEL] in [PROJECT]. What techniques did you use to avoid overfitting?"
+        - "What evaluation metrics did you prioritize (e.g., AUC, F1) and why?"
+        - "How did you handle class imbalance in your dataset?"
+    - name: Experimentation & Tracking
+      signals:
+        - experiment tracking
+        - hyperparameter tuning
+        - MLflow
+        - Weights & Biases
+        - reproducibility
+      follow_up_templates:
+        - "How did you track your experiments in [PROJECT]? Did you use any tools like MLflow or Weights & Biases?"
+        - "Can you describe a time when a hyperparameter change significantly improved your model's performance?"
+        - "How do you ensure reproducibility of your ML pipelines?"
+    - name: Communication of ML Results
+      signals:
+        - storytelling
+        - stakeholder communication
+        - visualization
+        - explainability
+      follow_up_templates:
+        - "How do you explain complex ML results to non-technical stakeholders?"
+        - "What visualizations did you use to convey the performance of your model?"
+        - "How did you gather feedback from product or business teams on your ML solution?"
+Gen-AI Focus:
+  competencies:
+    - name: LLM Engineering
+      signals:
+        - LLM
+        - fine-tuning
+        - prompt engineering
+        - hallucination
+        - token efficiency
+        - inference latency
+      follow_up_templates:
+        - "You mentioned using [TECHNIQUE] for [TASK] in your resume. What specific trade-offs did you consider between different approaches (e.g., fine-tuning vs. prompt engineering)?"
+        - "How did you evaluate and mitigate hallucinations in your LLM application?"
+        - "What metrics did you use to measure token efficiency or inference cost, and how did you optimize them?"
+    - name: Agentic Systems
+      signals:
+        - agentic workflows
+        - ReAct
+        - tool use
+        - planning loop
+        - multi-agent
+        - LangChain
+        - LlamaIndex
+      follow_up_templates:
+        - "Your resume mentions building an agentic workflow for [TASK]. How did you design the tool-use mechanism, and what safeguards did you put in place?"
+        - "How did you handle unexpected tool outputs or errors in your agent loop?"
+        - "What metrics did you use to evaluate the success of your agentic system (e.g., task completion rate, number of steps)?"
+    - name: Retrieval-Augmented Generation (RAG)
+      signals:
+        - RAG
+        - vector DB
+        - FAISS
+        - embedding
+        - chunking
+        - retrieval
+      follow_up_templates:
+        - "Explain your RAG pipeline for [USE CASE]. How did you decide on chunking strategy and embedding model?"
+        - "How did you evaluate the quality of retrieval (e.g., recall, MRR) and its impact on final answer quality?"
+        - "What techniques did you use to reduce hallucinations in your RAG system?"
+Data Science:
+  competencies:
+    - name: Statistical Analysis
+      signals:
+        - statistics
+        - hypothesis testing
+        - A/B testing
+        - p-value
+        - confidence interval
+      follow_up_templates:
+        - "Walk me through how you designed the experiment or analysis for [PROJECT]. What was your null hypothesis, and how did you collect data?"
+        - "Which statistical test did you choose, and why was it appropriate for your data?"
+        - "How did you check the assumptions of your statistical test (e.g., normality, equal variances)?"
+    - name: Data Wrangling & Visualization
+      signals:
+        - data wrangling
+        - data cleaning
+        - pandas
+        - NumPy
+        - SQL
+        - NoSQL
+        - matplotlib
+        - seaborn
+        - plotly
+        - Tableau
+        - Power BI
+      follow_up_templates:
+        - "Describe the data cleaning steps you took for [PROJECT]. How did you handle missing values or outliers?"
+        - "What visualizations did you create to explore the data, and what insights did they reveal?"
+        - "How did you ensure the reproducibility of your data pipeline?"
+    - name: Communication of Insights
+      signals:
+        - storytelling
+        - stakeholder communication
+        - dashboard
+        - report
+      follow_up_templates:
+        - "How do you translate your statistical findings into actionable recommendations for business stakeholders?"
+        - "What elements did you include in your final report or dashboard to make it easy to understand?"
+        - "Can you share an example where your analysis led to a concrete business decision?"

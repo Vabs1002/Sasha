@@ -1,0 +1,35 @@
+John Doe
+Software Engineer
+john.doe@email.com | (555) 123-4567 | linkedin.com/in/johndoe
+
+SUMMARY
+Experienced software engineer with 3 years of experience building scalable web applications and services. Proficient in Python, JavaScript, and cloud technologies.
+
+EXPERIENCE
+Software Engineer | Tech Corp | January 2021 - Present
+- Developed and maintained RESTful APIs using Python Flask and Django
+- Built responsive web applications with React and Redux
+- Improved application performance by 40% through optimization and caching
+- Collaborated with cross-functional teams to deliver features on schedule
+- Mentored 2 junior engineers in software development best practices
+
+Junior Software Engineer | StartupXYZ | June 2020 - December 2020
+- Created internal tools using Python and SQL to automate business processes
+- Assisted in migrating legacy systems to cloud infrastructure
+- Participated in code reviews and contributed to team knowledge sharing
+
+EDUCATION
+Bachelor of Science in Computer Science
+University of Example | Graduated: May 2020
+
+SKILLS
+Languages: Python, JavaScript, SQL, HTML/CSS
+Frameworks: Flask, Django, React, Redux, Node.js
+Tools: Git, Docker, AWS, Linux, REST APIs
+Concepts: Object-Oriented Design, Data Structures, Algorithms, System Design
+
+PROJECTS
+- Built a real-time chat application using WebSocket and Node.js serving 1000+ concurrent users
+- Developed a recommendation engine using collaborative filtering algorithms in Python
+- Created a task management web application with Django and PostgreSQL
+- Designed and implemented a REST API for inventory management handling 500+ daily requests
