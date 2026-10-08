@@ -141,10 +141,10 @@ def main():
             if voice_output_enabled:
                 print("   - Text-to-Speech: ON")
         else:
-            print("⚠️  Voice features: DISABLED (missing RUMIK_API_KEY or voice services)")
+            print("!! Voice features: DISABLED (missing RUMIK_API_KEY or voice services)")
             print("    Set RUMIK_API_KEY environment variable to enable voice features")
     else:
-        print("💬 Voice features: DISABLED (text-only mode)")
+        print("Voice features: DISABLED (text-only mode)")
 
     # GAP 11: Accent fairness mode — disables disfluency + perplexity as stress signals
     # for non-native English speakers, preventing research-documented bias.
@@ -169,7 +169,7 @@ def main():
         "role": role_result['role'],
         "role_confidence": role_result['confidence']
     }
-    print(f"Detected role: {resume_profile['role']} (confidence {resume_profile['confidence']:.3f})")
+    print(f"Detected role: {resume_profile['role']} (confidence {resume_profile['role_confidence']:.3f})")
     print(f"Experience: {resume_profile['years_experience']} years ({resume_profile['level']})")
     print()
 
@@ -196,7 +196,7 @@ def main():
 
     # GAP 4: Adaptive difficulty — seeds from resume level, adjusts live each turn
     difficulty_selector = AdaptiveQuestionSelector(resume_profile['level'])
-    print(f"🎯 Starting difficulty: {difficulty_selector.label()}")
+    print(f"* Starting difficulty: {difficulty_selector.label()}")
 
     # Behavioral question rotation state (ask one behavioral Q every 3 technical turns)
     behavioral_categories = list(BEHAVIORAL_QUESTIONS.keys())

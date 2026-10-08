@@ -5,7 +5,7 @@ import numpy as np
 from openai import OpenAI
 import pickle
 import logging
-from typing import Dict, Any, Tuple, Optional, Union, List
+from typing import Dict, Any, Tuple, Optional, Union, List, Callable
 import re
 
 try:
@@ -28,18 +28,51 @@ except ImportError:
         return None, None
     _embedder = None
 
-# Import voice services for STT/TTS capabilities
-try:
-    from voice_services import speech_to_text, text_to_speech
-    VOICE_SERVICES_AVAILABLE = True
-except ImportError:
-    VOICE_SERVICES_AVAILABLE = False
-    logger = logging.getLogger(__name__)
-    logger.debug("Voice services not available - continuing in text-only mode")
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _build_openai_client(**provider_options):
+    """Create a provider client with bounded wait and retry behavior."""
+    try:
+        timeout_seconds = min(max(float(os.getenv("LLM_TIMEOUT_SECONDS", "15")), 1.0), 120.0)
+    except (TypeError, ValueError):
+        timeout_seconds = 15.0
+    try:
+        max_retries = min(max(int(os.getenv("LLM_MAX_RETRIES", "0")), 0), 5)
+    except (TypeError, ValueError):
+        max_retries = 0
+    return OpenAI(timeout=timeout_seconds, max_retries=max_retries, **provider_options)
+
+
+def _create_chat_completion(**request_options):
+    """Keep Gemini turn reasoning deliberately light for interview latency."""
+    model_name = str(request_options.get("model", "")).lower()
+    agentic_resume_search_enabled = os.getenv(
+        "ENABLE_AGENTIC_RESUME_SEARCH", "false"
+    ).lower() == "true"
+    if model_name.startswith("gemini-"):
+        extra_body = dict(request_options.get("extra_body") or {})
+        extra_body["reasoning_effort"] = os.getenv("LLM_REASONING_EFFORT", "minimal")
+        request_options["extra_body"] = extra_body
+    if not agentic_resume_search_enabled:
+        messages = request_options.get("messages", [])
+        request_options["messages"] = [
+            {
+                **message,
+                "content": (
+                    "You are an expert technical interviewer. Use only the supplied "
+                    "resume summary, job context, and candidate answer. Do not call tools. "
+                    "Return valid JSON for the interview decision."
+                ),
+            }
+            if message.get("role") == "system"
+            else message
+            for message in messages
+        ]
+    return client.chat.completions.create(**request_options)
+
 
 # Load OpenAI-compatible client (Grok, OpenAI, Groq, Ollama, or Custom)
 def init_llm_client():
@@ -55,23 +88,23 @@ def init_llm_client():
     custom_base = os.getenv("LLM_BASE_URL")
     custom_key = os.getenv("LLM_API_KEY")
     if custom_base and custom_key:
-        return OpenAI(base_url=custom_base, api_key=custom_key), os.getenv("LLM_MODEL", "gpt-4o-mini")
+        return _build_openai_client(base_url=custom_base, api_key=custom_key), os.getenv("LLM_MODEL", "gpt-4o-mini")
 
     groq_key = os.getenv("GROQ_API_KEY")
     if groq_key:
-        return OpenAI(base_url="https://api.groq.com/openai/v1", api_key=groq_key), os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+        return _build_openai_client(base_url="https://api.groq.com/openai/v1", api_key=groq_key), os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
     openai_key = os.getenv("OPENAI_API_KEY")
     if openai_key:
-        return OpenAI(api_key=openai_key), os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        return _build_openai_client(api_key=openai_key), os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     grok_key = os.getenv("GROK_API_KEY")
     if grok_key:
-        return OpenAI(base_url="https://api.x.ai/v1", api_key=grok_key), os.getenv("GROK_MODEL", "grok-beta")
+        return _build_openai_client(base_url="https://api.x.ai/v1", api_key=grok_key), os.getenv("GROK_MODEL", "grok-beta")
 
     ollama_url = os.getenv("OLLAMA_BASE_URL")
     if ollama_url:
-        return OpenAI(base_url=ollama_url, api_key="ollama"), os.getenv("OLLAMA_MODEL", "llama3")
+        return _build_openai_client(base_url=ollama_url, api_key="ollama"), os.getenv("OLLAMA_MODEL", "llama3")
 
     return None, "grok-beta"
 
@@ -429,7 +462,7 @@ INTERVIEW HISTORY:
 
 CURRENT ANSWER ANALYSIS:
 - Transcript: "{analysis.get('transcript', '')}"
-- Perplexity score: {analysis.get('perplexity', 0)} (human-like: 50-150; <30 = likely AI-generated)
+- Experimental perplexity signal: {analysis.get('perplexity', 0) if analysis.get('perplexity_available', True) else 'not measured'}
 - Disfluency rate: {analysis.get('disfluency_rate', 0)} (human-like: 0.1-0.2; <0.05 = suspiciously smooth)
 - Consistency with resume: {analysis.get('consistency', 0)} (0-1; <0.4 = poor match)
 
@@ -458,6 +491,12 @@ YOUR TASK:
 
 OUTPUT MUST BE VALID JSON:
 {
+  "decision": {
+    "action": "<follow_up|move_on|end_early>",
+    "reasoning": "<why you chose this action>",
+    "follow_up_topic": "<if action=follow_up: what to probe e.g., 'specific metrics improved', 'trade-offs considered'>"
+  },
+  "next_question": "<natural, conversational question to ask - ONLY if action is follow_up or move_on>",
   "assessment": {
     "ownership": <0-10>,
     "depth": <0-10>,
@@ -465,13 +504,7 @@ OUTPUT MUST BE VALID JSON:
     "learning": <0-10>,
     "communication": <0-10>,
     "notes": "<brief explanation of scores>"
-  },
-  "decision": {
-    "action": "<follow_up|move_on|end_early>",
-    "reasoning": "<why you chose this action>",
-    "follow_up_topic": "<if action=follow_up: what to probe e.g., 'specific metrics improved', 'trade-offs considered'>"
-  },
-  "next_question": "<natural, conversational question to ask - ONLY if action is follow_up or move_on>"
+  }
 }
 """
         return prompt
@@ -555,7 +588,7 @@ INTERVIEW HISTORY:
 
 CURRENT ANSWER ANALYSIS:
 - Transcript: "{analysis.get('transcript', '')}"
-- Perplexity score: {analysis.get('perplexity', 0)} (human-like: 50-150; <30 = likely AI-generated)
+- Experimental perplexity signal: {analysis.get('perplexity', 0) if analysis.get('perplexity_available', True) else 'not measured'}
 - Disfluency rate: {analysis.get('disfluency_rate', 0)} (human-like: 0.1-0.2; <0.05 = suspiciously smooth)
 - Consistency with resume: {analysis.get('consistency', 0)} (0-1; <0.4 = poor match)
 
@@ -593,6 +626,12 @@ If you need to use the search_resume tool to gather information before completin
 
 OUTPUT MUST BE VALID JSON (if using tool, include TOOL_USE and TOOL_INPUT lines before the JSON):
 {
+  "decision": {
+    "action": "<follow_up|move_on|end_early>",
+    "reasoning": "<why you chose this action>",
+    "follow_up_topic": "<if action=follow_up: what to probe e.g., 'specific metrics improved', 'trade-offs considered'>"
+  },
+  "next_question": "<natural, conversational question to ask - ONLY if action is follow_up or move_on>",
   "assessment": {
     "ownership": <0-10>,
     "depth": <0-10>,
@@ -600,13 +639,7 @@ OUTPUT MUST BE VALID JSON (if using tool, include TOOL_USE and TOOL_INPUT lines 
     "learning": <0-10>,
     "communication": <0-10>,
     "notes": "<brief explanation of scores>"
-  },
-  "decision": {
-    "action": "<follow_up|move_on|end_early>",
-    "reasoning": "<why you chose this action>",
-    "follow_up_topic": "<if action=follow_up: what to probe e.g., 'specific metrics improved', 'trade-offs considered'>"
-  },
-  "next_question": "<natural, conversational question to ask - ONLY if action is follow_up or move_on>"
+  }
 }
 """
         return prompt
@@ -615,10 +648,43 @@ OUTPUT MUST BE VALID JSON (if using tool, include TOOL_USE and TOOL_INPUT lines 
         # Fallback to basic prompt
         return format_prompt_basic(resume_profile, history, analysis, selected_competency, competency_bank)
 
+def _decode_json_string_prefix(raw_value: str) -> str:
+    """Decode the complete prefix of a possibly incomplete JSON string value."""
+    decoded = []
+    index = 0
+    escapes = {"\"": "\"", "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+    while index < len(raw_value):
+        char = raw_value[index]
+        if char == '"':
+            break
+        if char != "\\":
+            decoded.append(char)
+            index += 1
+            continue
+        if index + 1 >= len(raw_value):
+            break
+        escaped = raw_value[index + 1]
+        if escaped == "u":
+            if index + 6 > len(raw_value):
+                break
+            try:
+                decoded.append(json.loads('"' + raw_value[index:index + 6] + '"'))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                break
+            index += 6
+        elif escaped in escapes:
+            decoded.append(escapes[escaped])
+            index += 2
+        else:
+            break
+    return "".join(decoded)
+
+
 def get_interviewer_decision(resume_profile: Dict[str, Any], history: list, analysis: Dict[str, Any],
                            competency_bank_path: str = "competency_bank.yaml", model_path: str = "competency_selector.pkl",
                            difficulty_label: str = "medium — probe trade-offs, design choices, and alternatives",
-                           jd_summary: str = "") -> Dict[str, Any]:
+                            jd_summary: str = "",
+                            stream_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
     """
     Get interviewer decision from the LLM based on resume profile, history, and analysis.
     Supports Agentic RAG - the LLM can call tools to search the resume for specific information.
@@ -643,46 +709,31 @@ def get_interviewer_decision(resume_profile: Dict[str, Any], history: list, anal
         model = load_competency_selector_model(model_path)
         selected_competency = select_competency(resume_profile, history, analysis, bank, model)
 
-        # Get resume text for Agentic RAG tool
+        # Resume text is only sent to the optional second-stage search mode.
         resume_text = resume_profile.get('raw_text', '')
 
-        # NEW: Process voice input if available in history
-        # Check if we have audio data in the history that needs transcription
-        answer_text = history[-1].get('answer', '') if history else ''
-        voice_enabled = os.getenv('ENABLE_VOICE_INPUT', 'false').lower() == 'true'
+        # The caller already analyzed the current answer. Reuse that result:
+        # recomputing here duplicated expensive model work and previously called
+        # helpers that were not imported, silently forcing the fallback path.
 
-        if voice_enabled and VOICE_SERVICES_AVAILABLE and not answer_text:
-            # Try to get voice input if no text answer provided
-            try:
-                # In a real implementation, audio data would come from microphone/audio input
-                # For now, we'll check if there's audio data in the history
-                audio_data = history[-1].get('audio_data') if history else None
-                if audio_data:
-                    answer_text = speech_to_text(audio_data)
-                    logger.info(f"Using voice input: {answer_text[:50]}...")
-            except Exception as e:
-                logger.warning(f"Voice input failed, falling back to text: {e}")
-                # Keep existing answer_text (may be empty)
-
-        # Update the history with the (potentially) transcribed answer
-        if history and answer_text != history[-1].get('answer', ''):
-            history[-1] = history[-1].copy()
-            history[-1]['answer'] = answer_text
-
-        # Continue with existing analysis using (possibly) updated answer text
-        analysis = {
-            'perplexity': get_perplexity(answer_text),
-            'disfluency_rate': get_disfluency_rate(answer_text),
-            'consistency': get_consistency(resume_text, answer_text),
-            'transcript': answer_text
-        }
-
-        # Initial prompt — now includes adaptive difficulty and JD context
-        prompt = format_prompt_for_agentic_rag(
-            resume_profile, history, analysis, selected_competency, bank, resume_text,
-            difficulty_label=difficulty_label,
-            jd_summary=jd_summary
-        )
+        # Keep the common path to one provider request. Agentic resume search
+        # can add a second round trip, so enable it only when explicitly needed.
+        agentic_resume_search_enabled = os.getenv(
+            "ENABLE_AGENTIC_RESUME_SEARCH", "false"
+        ).lower() == "true"
+        if agentic_resume_search_enabled:
+            prompt = format_prompt_for_agentic_rag(
+                resume_profile, history, analysis, selected_competency, bank, resume_text,
+                difficulty_label=difficulty_label,
+                jd_summary=jd_summary
+            )
+        else:
+            prompt = format_prompt_basic(
+                resume_profile, history, analysis, selected_competency, bank
+            )
+            prompt += f"\nTarget difficulty: {difficulty_label}. Probe this level naturally.\n"
+            if jd_summary:
+                prompt += f"\nRelevant job requirements:\n{jd_summary}\n"
 
         # Use Grok (OpenAI compatible) to generate
         if client is None:
@@ -690,22 +741,57 @@ def get_interviewer_decision(resume_profile: Dict[str, Any], history: list, anal
             return _get_fallback_response(resume_profile, history, analysis)
 
         # First call to LLM - might request tool usage
-        response = client.chat.completions.create(
+        stream_question = bool(stream_callback and not agentic_resume_search_enabled)
+        response = _create_chat_completion(
             model=default_llm_model,
             messages=[
                 {"role": "system", "content": "You are an expert technical interviewer. You have access to a search_resume tool to find specific information in the candidate's resume. When you need to verify claims, check details, or gather specific information for follow-up questions, use the tool. If you need to use the tool, include TOOL_USE: search_resume and TOOL_INPUT: \"your query\" lines BEFORE your JSON response. Otherwise, provide direct JSON output."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.2,
-            max_tokens=1000,  # Increased for tool usage
+            max_tokens=1000 if agentic_resume_search_enabled else 600,
+            stream=stream_question,
         )
 
-        # Extract the response content
-        response_content = response.choices[0].message.content
+        # Stream only the candidate-facing question field while collecting the
+        # full JSON response needed for scoring and report provenance.
+        if stream_question:
+            response_parts = []
+            streamed_question = ""
+            action_pattern = re.compile(r'"action"\s*:\s*"(follow_up|move_on)"')
+            question_pattern = re.compile(r'"next_question"\s*:\s*"')
+            try:
+                for chunk in response:
+                    choices = getattr(chunk, "choices", None) or []
+                    delta = getattr(choices[0], "delta", None) if choices else None
+                    content = getattr(delta, "content", None) if delta else None
+                    if not content:
+                        continue
+                    response_parts.append(content)
+                    accumulated = "".join(response_parts)
+                    action_match = action_pattern.search(accumulated)
+                    question_match = question_pattern.search(accumulated)
+                    if action_match and question_match:
+                        raw_question = accumulated[question_match.end():]
+                        decoded_question = _decode_json_string_prefix(raw_question)
+                        new_text = decoded_question[len(streamed_question):]
+                        if new_text:
+                            streamed_question = decoded_question
+                            try:
+                                stream_callback(new_text)
+                            except Exception as callback_error:
+                                logger.debug("Could not deliver streamed question delta: %s", type(callback_error).__name__)
+                response_content = "".join(response_parts)
+            finally:
+                close_stream = getattr(response, "close", None)
+                if close_stream:
+                    close_stream()
+        else:
+            response_content = response.choices[0].message.content
         logger.debug(f"LLM raw response: {response_content}")
 
         # Check if LLM wants to use a tool
-        if "TOOL_USE: search_resume" in response_content and "TOOL_INPUT:" in response_content:
+        if agentic_resume_search_enabled and "TOOL_USE: search_resume" in response_content and "TOOL_INPUT:" in response_content:
             logger.info("LLM requested to use search_resume tool")
 
             # Extract the tool input
@@ -723,7 +809,6 @@ def get_interviewer_decision(resume_profile: Dict[str, Any], history: list, anal
 
                 if tool_input_line is None:
                     # Try to extract from the content directly
-                    import re
                     match = re.search(r'TOOL_INPUT:\s*"([^"]*)"', response_content)
                     if match:
                         tool_query = match.group(1)
@@ -749,7 +834,7 @@ Now continue with your assessment and provide your final JSON response based on 
 {format_prompt_basic(resume_profile, history, analysis, selected_competency, bank)}"""
 
                 # Second call to LLM with tool results
-                final_response = client.chat.completions.create(
+                final_response = _create_chat_completion(
                     model=default_llm_model,
                     messages=[
                         {"role": "system", "content": "You are an expert technical interviewer. You have already used the search_resume tool to gather information from the candidate's resume. Now provide your final assessment in JSON format."},
@@ -764,6 +849,7 @@ Now continue with your assessment and provide your final JSON response based on 
                 try:
                     result = json.loads(final_response.choices[0].message.content)
                     logger.info("Successfully received and parsed LLM response after tool usage")
+                    result.setdefault("decision_source", "llm")
                     return result
                 except (json.JSONDecodeError, KeyError, AttributeError) as e:
                     logger.error(f"Failed to parse LLM output after tool usage: {str(e)}")
@@ -785,6 +871,7 @@ Now continue with your assessment and provide your final JSON response based on 
                 json_str = response_content[json_start:json_end]
                 result = json.loads(json_str)
                 logger.info("Successfully received and parsed LLM response (direct JSON)")
+                result.setdefault("decision_source", "llm")
                 return result
             else:
                 # Try parsing the whole content
@@ -853,6 +940,7 @@ def _get_fallback_response(resume_profile: Dict[str, Any], history: list, analys
         next_question = "Thank you for your answer. Let's move on to the next topic."
 
     return {
+        "decision_source": "fallback",
         "assessment": {
             "ownership": round(ownership, 1),
             "depth": round(depth, 1),

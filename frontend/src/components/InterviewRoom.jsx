@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Mic,
   MicOff,
@@ -12,27 +12,35 @@ import {
   AlertTriangle,
   Send,
   CornerDownLeft,
-  Sparkles
+  Sparkles,
+  X
 } from 'lucide-react';
 import SashaPresence from './SashaPresence';
-import { createInterviewWebSocket, submitTurn } from '../api';
+import { createInterviewWebSocket, submitTurn, uploadInterviewEvidence } from '../api';
 
 export default function InterviewRoom({ sessionData, onCompleteSession }) {
   const { session_id, candidate_name, role, experience_level, starting_difficulty, first_question } = sessionData;
+  const integrityMonitoringEnabled = sessionData.integrity_monitoring_consent === true;
+  const evidenceCaptureEnabled = sessionData.evidence_capture_consent === true;
+  const [profileCheckPending, setProfileCheckPending] = useState(sessionData.profile_confirmation_required === true);
 
   // Conversational State
   const [sashaState, setSashaState] = useState('speaking'); // 'idle' | 'listening' | 'thinking' | 'speaking'
   const [currentQuestion, setCurrentQuestion] = useState(first_question || 'Welcome to your interview. Let us begin.');
+  const [streamedQuestionDraft, setStreamedQuestionDraft] = useState('');
   const [turnNumber, setTurnNumber] = useState(1);
   const [maxTurns] = useState(8);
   const [difficultyLabel, setDifficultyLabel] = useState(starting_difficulty || 'Standard');
   const [nudgeMessage, setNudgeMessage] = useState(null);
+  const [reviewSignal, setReviewSignal] = useState(null);
+  const [latencyMetrics, setLatencyMetrics] = useState(null);
 
   // Candidate Controls
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [manualAnswerText, setManualAnswerText] = useState('');
   const [interimTranscript, setInterimTranscript] = useState('');
+  const [autoSendAfterPause, setAutoSendAfterPause] = useState(false);
 
   // Audio & Video Refs
   const videoRef = useRef(null);
@@ -44,7 +52,153 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
   const wsRef = useRef(null);
   const frameIntervalRef = useRef(null);
   const recognitionRef = useRef(null);
+  const recognitionRestartTimerRef = useRef(null);
+  const recognitionDisposedRef = useRef(false);
   const canvasRef = useRef(null);
+  const pendingIntegrityEventsRef = useRef([]);
+  const pendingEvidenceUploadsRef = useRef(new Set());
+  const sessionCompletingRef = useRef(false);
+  const recentReviewSignalsRef = useRef([]);
+  const turnStartedAtRef = useRef(null);
+  const latencySamplesRef = useRef([]);
+  const activeSubmissionRef = useRef(false);
+
+  const cameraSignalDetails = {
+    gaze_away: ['Camera check: gaze direction', 'Repeated frames estimated an off-center gaze or head direction. Looking away can have ordinary causes; the camera cannot tell what you were looking at.'],
+    no_face: ['Camera check: face not visible', 'Repeated frames could not detect a face. This can happen because of lighting, framing, or camera quality.'],
+    multiple_faces: ['Camera check: more than one face', 'Repeated frames detected more than one face in view. This does not identify anyone or show that anyone helped.'],
+    proxy_speaker: ['Camera/audio check: speaking mismatch', 'The check saw a possible mismatch between audio activity and mouth movement. It can be wrong and does not identify another speaker.'],
+  };
+  const answerSignalLabels = {
+    critically_low_perplexity: 'unusually predictable word patterns',
+    low_perplexity: 'predictable word patterns',
+    unnaturally_fluent_script_reading: 'few speech disfluencies in a long answer',
+    minimal_spontaneous_disfluency: 'few speech disfluencies',
+    written_llm_discourse_markers: 'formal, written-style phrases',
+    formal_literary_syntax: 'formal, written-style phrasing',
+    sudden_turn_over_turn_fluency_leap: 'a change in measured fluency from an earlier answer',
+  };
+  const makeAnswerReviewSignal = (isAssistanceRequest, signalTypes = []) => {
+    if (isAssistanceRequest) {
+      return {
+        title: 'Review signal: direct request for an answer',
+        detail: 'The transcript matched wording that asks Sasha to provide an answer or solution. Speech recognition can be mistaken, and this does not establish that outside help was used. You can clarify your intent with Sasha.',
+      };
+    }
+    const labels = [...new Set(signalTypes.map((type) => answerSignalLabels[type]).filter(Boolean))];
+    return {
+      title: 'Review signal: answer-text pattern',
+      detail: `${labels.length ? `This response matched: ${labels.join('; ')}. ` : ''}These text and speech patterns cannot identify an AI tool or prove that AI was used. A structured or prepared answer may also trigger a flag.`,
+    };
+  };
+
+  const publishReviewSignal = (source, signal) => {
+    const now = Date.now();
+    const relatedPrior = recentReviewSignalsRef.current.filter((item) => now - item.at <= 60_000 && item.source !== source);
+    const current = { source, signal, at: now };
+    if (relatedPrior.length) {
+      const related = [...relatedPrior, current];
+      recentReviewSignalsRef.current = related;
+      setReviewSignal({
+        title: 'Related review signals occurred close together',
+        detail: `${related.map((item) => `${item.signal.title} — ${item.signal.detail}`).join(' ')} This timing is context only; it is not a combined cheating score or proof.`,
+      });
+    } else {
+      recentReviewSignalsRef.current = [current];
+      setReviewSignal(signal);
+    }
+  };
+
+  const completeAfterEvidence = async () => {
+    if (sessionCompletingRef.current) return;
+    sessionCompletingRef.current = true;
+    await Promise.allSettled(Array.from(pendingEvidenceUploadsRef.current));
+    onCompleteSession(session_id);
+  };
+
+  const captureEvidence = (signal) => {
+    if (!evidenceCaptureEnabled || !['gaze_away', 'no_face', 'multiple_faces', 'proxy_speaker'].includes(signal)) return;
+    const video = videoRef.current;
+    if (!video || isCameraOffRef.current || video.readyState < 2) return;
+
+    const snapshotPromise = new Promise((resolve) => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 320;
+        canvas.height = 180;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(resolve, 'image/jpeg', 0.65);
+      } catch (_) { resolve(null); }
+    });
+
+    const task = (async () => {
+      let clipBlob = null;
+      const videoTracks = mediaStreamRef.current?.getVideoTracks().filter((track) => track.readyState === 'live' && track.enabled) || [];
+      const MediaRecorderClass = window.MediaRecorder;
+      if (MediaRecorderClass && videoTracks.length) {
+        let frameTimer = null;
+        let evidenceStream = null;
+        try {
+          const evidenceCanvas = document.createElement('canvas');
+          evidenceCanvas.width = 320;
+          evidenceCanvas.height = 180;
+          const evidenceContext = evidenceCanvas.getContext('2d');
+          const drawEvidenceFrame = () => {
+            if (video.readyState >= 2) evidenceContext.drawImage(video, 0, 0, 320, 180);
+          };
+          drawEvidenceFrame();
+          frameTimer = window.setInterval(drawEvidenceFrame, 100);
+          evidenceStream = evidenceCanvas.captureStream(10);
+          const mimeType = ['video/webm;codecs=vp8', 'video/webm', 'video/mp4'].find((type) => MediaRecorderClass.isTypeSupported(type));
+          const recorder = mimeType
+            ? new MediaRecorderClass(evidenceStream, { mimeType })
+            : new MediaRecorderClass(evidenceStream);
+          const chunks = [];
+          clipBlob = await new Promise((resolve) => {
+            recorder.ondataavailable = (event) => { if (event.data?.size) chunks.push(event.data); };
+            recorder.onerror = () => {
+              window.clearInterval(frameTimer);
+              evidenceStream.getTracks().forEach((track) => track.stop());
+              resolve(null);
+            };
+            recorder.onstop = () => {
+              window.clearInterval(frameTimer);
+              evidenceStream.getTracks().forEach((track) => track.stop());
+              resolve(chunks.length ? new Blob(chunks, { type: recorder.mimeType || 'video/webm' }) : null);
+            };
+            recorder.start();
+            window.setTimeout(() => {
+              if (recorder.state !== 'inactive') recorder.stop();
+            }, 5000);
+          });
+        } catch (error) {
+          if (frameTimer) window.clearInterval(frameTimer);
+          evidenceStream?.getTracks().forEach((track) => track.stop());
+          console.warn('Short camera evidence recording was unavailable:', error);
+        }
+      }
+      const snapshot = await snapshotPromise;
+      if (!snapshot && !clipBlob) return;
+      try {
+        await uploadInterviewEvidence(session_id, signal, snapshot, clipBlob);
+      } catch (error) {
+        console.warn('Could not upload opted-in camera evidence:', error);
+      }
+    })();
+    pendingEvidenceUploadsRef.current.add(task);
+    task.finally(() => pendingEvidenceUploadsRef.current.delete(task));
+  };
+
+  const recordIntegrityEvent = useCallback((eventName) => {
+    if (!integrityMonitoringEnabled) return;
+    const ws = wsRef.current;
+    const message = JSON.stringify({ type: 'integrity_event', event: eventName });
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(message);
+    } else if (ws?.readyState === WebSocket.CONNECTING && pendingIntegrityEventsRef.current.length < 50) {
+      pendingIntegrityEventsRef.current.push(message);
+    }
+  }, [integrityMonitoringEnabled]);
 
   // Synchronization refs to eliminate WebSocket reconnection churn
   const isSpeakingRef = useRef(false);
@@ -58,7 +212,7 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
   useEffect(() => { interimTranscriptRef.current = interimTranscript; }, [interimTranscript]);
   useEffect(() => { sashaStateRef.current = sashaState; }, [sashaState]);
 
-  // Audio Playback Function (Zero-latency Web Speech with acoustic echo prevention)
+  // Browser speech playback with a short echo guard before candidate listening resumes.
   const speakText = (textToSpeak) => {
     if (!textToSpeak || !textToSpeak.trim()) return;
 
@@ -116,12 +270,18 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
   // 1. Initialize Webcam & Audio Stream
   useEffect(() => {
     let stream = null;
+    let disposed = false;
+    recognitionDisposedRef.current = false;
     async function setupMedia() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 360, frameRate: 15 },
           audio: true,
         });
+        if (disposed) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
         mediaStreamRef.current = stream;
 
         if (videoRef.current) {
@@ -185,6 +345,14 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
           };
 
           rec.onerror = (e) => console.debug('Speech recognition event:', e);
+          rec.onend = () => {
+            if (recognitionDisposedRef.current || isMicMutedRef.current) return;
+            window.clearTimeout(recognitionRestartTimerRef.current);
+            recognitionRestartTimerRef.current = window.setTimeout(() => {
+              if (recognitionDisposedRef.current || isMicMutedRef.current) return;
+              try { rec.start(); } catch (_) { /* already running */ }
+            }, 250);
+          };
           try {
             rec.start();
             recognitionRef.current = rec;
@@ -200,6 +368,9 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
     setupMedia();
 
     return () => {
+      disposed = true;
+      recognitionDisposedRef.current = true;
+      window.clearTimeout(recognitionRestartTimerRef.current);
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
@@ -222,20 +393,45 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
 
     ws.onopen = () => {
       console.log('Sasha WebSocket live connected:', session_id);
+      pendingIntegrityEventsRef.current.splice(0).forEach((message) => ws.send(message));
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
 
         // A. Immediate Barge-in acknowledgement
         if (data.type === 'interrupted') {
+          activeSubmissionRef.current = false;
+          setStreamedQuestionDraft('');
+          turnStartedAtRef.current = null;
           isSpeakingRef.current = false;
           setSashaState('listening');
         }
 
+        if (data.type === 'turn_processing') {
+          setSashaState('thinking');
+        }
+
+        if (data.type === 'turn_error' || data.type === 'turn_busy') {
+          activeSubmissionRef.current = false;
+          setStreamedQuestionDraft('');
+          turnStartedAtRef.current = null;
+          setAutoSendAfterPause(false);
+          setSashaState('listening');
+          setNudgeMessage(data.message || 'Please wait for the current response to finish.');
+        }
+
+        if (data.type === 'question_delta' && typeof data.text === 'string') {
+          setStreamedQuestionDraft((current) => current + data.text);
+        }
+
         // B. Sasha Nudge (Integrity, Gaze, AI Script or Empathy)
         if (data.type === 'sasha_nudge' || data.type === 'empathy') {
+          if (data.type === 'sasha_nudge' && data.signal && cameraSignalDetails[data.signal]) {
+            captureEvidence(data.signal);
+            publishReviewSignal('camera', { title: cameraSignalDetails[data.signal][0], detail: cameraSignalDetails[data.signal][1] });
+          }
           const text = data.text;
           setNudgeMessage(text);
           speakText(text);
@@ -245,12 +441,33 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
 
         // C. Next Turn Result received
         if (data.type === 'turn_result') {
+          activeSubmissionRef.current = false;
+          setStreamedQuestionDraft('');
+          if (data.profile_confirmed) setProfileCheckPending(false);
+          if (!data.profile_confirmed && turnStartedAtRef.current !== null) {
+            const roundTripMs = Math.round(performance.now() - turnStartedAtRef.current);
+            turnStartedAtRef.current = null;
+            const samples = [...latencySamplesRef.current, roundTripMs].slice(-20);
+            latencySamplesRef.current = samples;
+            const ordered = [...samples].sort((a, b) => a - b);
+            const percentile = (fraction) => ordered[Math.max(0, Math.ceil(ordered.length * fraction) - 1)];
+            setLatencyMetrics({
+              lastMs: roundTripMs,
+              serverMs: data.processing_ms,
+              p50Ms: percentile(0.5),
+              p95Ms: percentile(0.95),
+              count: ordered.length,
+            });
+          }
+          if (data.assistance_request_detected || data.ai_script_detected) {
+            publishReviewSignal('answer', makeAnswerReviewSignal(data.assistance_request_detected, data.ai_signal_types || []));
+          }
           if (data.is_complete) {
-            onCompleteSession(session_id);
+            await completeAfterEvidence();
             return;
           }
           setCurrentQuestion(data.next_question);
-          setTurnNumber(data.turn);
+          if (data.turn > 0) setTurnNumber(data.turn);
           if (data.difficulty_label) {
             setDifficultyLabel(data.difficulty_label);
           }
@@ -260,7 +477,7 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
         }
 
         if (data.type === 'completed') {
-          onCompleteSession(session_id);
+          await completeAfterEvidence();
         }
       } catch (err) {
         console.error('Error handling WebSocket message:', err);
@@ -271,7 +488,7 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
 
     // 3. Periodic Webcam Frame Capture (Reuses canvas, accesses synced refs without reconnecting WS)
     frameIntervalRef.current = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN && videoRef.current && !isCameraOffRef.current) {
+      if (integrityMonitoringEnabled && ws.readyState === WebSocket.OPEN && videoRef.current && !isCameraOffRef.current) {
         try {
           if (!canvasRef.current) {
             canvasRef.current = document.createElement('canvas');
@@ -302,12 +519,32 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
       if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
       if (ws) ws.close();
     };
-  }, [session_id]);
+  }, [session_id, integrityMonitoringEnabled, evidenceCaptureEnabled]);
+
+  useEffect(() => {
+    if (!integrityMonitoringEnabled) return undefined;
+
+    const handleVisibilityChange = () => {
+      recordIntegrityEvent(document.hidden ? 'page_hidden' : 'page_visible');
+    };
+    const handleBlur = () => recordIntegrityEvent('window_blur');
+    const handleFocus = () => recordIntegrityEvent('window_focus');
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [session_id, integrityMonitoringEnabled, recordIntegrityEvent]);
 
   // 4. Handle Submitting Answer Turn
   const handleAnswerSubmit = async () => {
     const answer = (manualAnswerText + ' ' + interimTranscript).trim();
-    if (!answer) return;
+    if (!answer || activeSubmissionRef.current) return;
+    activeSubmissionRef.current = true;
 
     setSashaState('thinking');
     setInterimTranscript('');
@@ -315,24 +552,57 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
     try {
       // Send via WebSocket if open, fallback to HTTP REST
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        turnStartedAtRef.current = performance.now();
         wsRef.current.send(JSON.stringify({ type: 'answer', text: answer }));
       } else {
+        const requestStartedAt = performance.now();
         const result = await submitTurn(session_id, answer);
+        activeSubmissionRef.current = false;
+        const roundTripMs = Math.round(performance.now() - requestStartedAt);
+        const samples = [...latencySamplesRef.current, roundTripMs].slice(-20);
+        latencySamplesRef.current = samples;
+        const ordered = [...samples].sort((a, b) => a - b);
+        const percentile = (fraction) => ordered[Math.max(0, Math.ceil(ordered.length * fraction) - 1)];
+        setLatencyMetrics({ lastMs: roundTripMs, p50Ms: percentile(0.5), p95Ms: percentile(0.95), count: ordered.length });
+        if (result.assistance_request_detected || result.ai_script_detected) {
+          publishReviewSignal('answer', makeAnswerReviewSignal(result.assistance_request_detected, result.ai_signal_types || []));
+        }
+        if (result.profile_confirmed) setProfileCheckPending(false);
         if (result.is_complete) {
-          onCompleteSession(session_id);
+          await completeAfterEvidence();
           return;
         }
         setCurrentQuestion(result.next_question);
-        setTurnNumber(result.turn_number);
+        if (result.turn_number > 0) setTurnNumber(result.turn_number);
         setDifficultyLabel(result.difficulty_label);
         setSashaState('speaking');
+        speakText(result.next_question);
         setManualAnswerText('');
+        setInterimTranscript('');
       }
     } catch (err) {
       console.error('Submit turn error:', err);
+      activeSubmissionRef.current = false;
+      turnStartedAtRef.current = null;
+      setAutoSendAfterPause(false);
       setSashaState('listening');
     }
   };
+
+  // Optional hands-free turn submission. Keep it off by default so candidates
+  // stay in control of when their answer is sent.
+  useEffect(() => {
+    if (
+      !autoSendAfterPause ||
+      sashaState !== 'listening' ||
+      (!manualAnswerText.trim() && !interimTranscript.trim())
+    ) return undefined;
+
+    const timer = window.setTimeout(() => {
+      if (!isSpeakingRef.current) handleAnswerSubmit();
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [autoSendAfterPause, manualAnswerText, interimTranscript, sashaState]);
 
   // 5. Trigger Instant Barge-In
   const triggerBargeIn = () => {
@@ -340,7 +610,11 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
       window.speechSynthesis.cancel();
     }
     isSpeakingRef.current = false;
+    activeSubmissionRef.current = false;
+    turnStartedAtRef.current = null;
     setSashaState('listening');
+    setManualAnswerText('');
+    setInterimTranscript('');
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'interrupt' }));
     }
@@ -349,8 +623,15 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
   // Mic Toggle
   const toggleMic = () => {
     if (mediaStreamRef.current) {
-      mediaStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = isMicMuted));
-      setIsMicMuted(!isMicMuted);
+      const nextMuted = !isMicMuted;
+      mediaStreamRef.current.getAudioTracks().forEach((track) => (track.enabled = !nextMuted));
+      setIsMicMuted(nextMuted);
+      if (nextMuted) {
+        window.clearTimeout(recognitionRestartTimerRef.current);
+        try { recognitionRef.current?.stop(); } catch (_) { /* recognition already stopped */ }
+      } else {
+        try { recognitionRef.current?.start(); } catch (_) { /* recognition already running */ }
+      }
     }
   };
 
@@ -382,9 +663,9 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
             <span className="text-violet-300 font-medium uppercase">{difficultyLabel}</span>
           </div>
 
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-xs font-mono text-emerald-400">
+          <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-mono ${integrityMonitoringEnabled ? 'bg-amber-500/10 border-amber-500/20 text-amber-300' : 'bg-slate-500/10 border-slate-500/20 text-slate-400'}`}>
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Anti-Cheat Proctored</span>
+            <span>{integrityMonitoringEnabled ? 'Opt-in review signals' : 'Monitoring off'}</span>
           </div>
         </div>
       </header>
@@ -409,13 +690,13 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
           <div className="glass-panel rounded-2xl p-4 border border-white/[0.07]">
             <div className="flex items-center justify-between text-xs font-mono mb-2">
               <span className="text-slate-400">Turn Progress</span>
-              <span className="text-sky-400 font-semibold">{turnNumber} / {maxTurns}</span>
+              <span className="text-sky-400 font-semibold">{profileCheckPending ? 'Profile check' : `${turnNumber} / ${maxTurns}`}</span>
             </div>
             
             <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
               <div 
                 className="h-full bg-sky-400 transition-all duration-500 rounded-full"
-                style={{ width: `${(turnNumber / maxTurns) * 100}%` }}
+                style={{ width: `${(profileCheckPending ? 0 : (turnNumber / maxTurns) * 100)}%` }}
               />
             </div>
 
@@ -428,18 +709,25 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
           <div className="glass-panel-subtle rounded-2xl p-4 border border-white/[0.06] text-left">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
               <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>Full-Duplex Barge-In</span>
+              <span>Live Turn Control</span>
             </div>
             <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-              You can speak or interrupt Sasha at any moment. The system detects your voice and yields immediately (&lt;50ms).
+              Stop Sasha while she is speaking or processing, then continue with another answer.
             </p>
-            {sashaState === 'speaking' && (
+            {latencyMetrics && (
+              <p className="mt-2 text-[10px] text-slate-500 font-mono" aria-live="polite">
+                Last response {latencyMetrics.lastMs} ms
+                {Number.isFinite(latencyMetrics.serverMs) ? ` (server ${latencyMetrics.serverMs} ms)` : ''}
+                {' · '}session p50 {latencyMetrics.p50Ms} ms / p95 {latencyMetrics.p95Ms} ms ({latencyMetrics.count} turns)
+              </p>
+            )}
+            {(sashaState === 'speaking' || sashaState === 'thinking') && (
               <button
                 onClick={triggerBargeIn}
                 className="mt-3 w-full py-1.5 px-3 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-mono transition-colors flex items-center justify-center gap-1.5"
               >
                 <Zap className="w-3 h-3" />
-                <span>Interrupt Sasha & Answer</span>
+                <span>{sashaState === 'thinking' ? 'Cancel Current Turn' : 'Stop Sasha Speaking'}</span>
               </button>
             )}
           </div>
@@ -465,7 +753,19 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
           </div>
 
           {/* Floating Constructive Nudge Banner (If any) */}
-          {nudgeMessage && (
+          {reviewSignal ? (
+            <div role="status" aria-live="polite" className="absolute top-14 left-6 right-6 z-20 flex items-start gap-2.5 p-2.5 rounded-lg bg-rose-950/95 border border-rose-500/50 text-rose-100 text-[11px] shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">{reviewSignal.title}</p>
+                <p className="mt-0.5 leading-relaxed text-rose-100/90">{reviewSignal.detail}</p>
+                <p className="mt-1 text-rose-200/70">A review signal is not a finding of cheating.</p>
+              </div>
+              <button type="button" aria-label="Dismiss review signal" title="Dismiss" onClick={() => { setReviewSignal(null); setNudgeMessage(null); }} className="shrink-0 p-1 rounded hover:bg-rose-800/70 text-rose-200">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : nudgeMessage && (
             <div className="absolute top-14 left-6 right-6 z-20 flex items-center gap-3 p-3.5 rounded-xl bg-amber-500/15 border border-amber-400/30 text-amber-200 text-xs shadow-lg animate-in fade-in slide-in-from-top-3 duration-300">
               <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
               <span className="leading-relaxed">{nudgeMessage}</span>
@@ -481,18 +781,27 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
           <div className="w-full max-w-xl text-center space-y-4">
             <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
               <p className="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-1">
-                Turn {turnNumber} Technical Probe
+                {profileCheckPending ? 'Quick profile check' : `Turn ${turnNumber} Technical Probe`}
               </p>
               <h3 className="text-base sm:text-lg font-medium text-slate-100 leading-relaxed">
                 "{currentQuestion}"
               </h3>
             </div>
+            {streamedQuestionDraft && (
+              <div className="p-3 rounded-xl bg-violet-500/[0.06] border border-violet-400/[0.12] text-left" role="status" aria-live="polite">
+                <p className="text-[10px] font-mono uppercase tracking-widest text-violet-300/70 mb-1">
+                  Sasha is forming the next question
+                </p>
+                <p className="text-sm text-violet-100/90 leading-relaxed">{streamedQuestionDraft}</p>
+              </div>
+            )}
 
             {/* Answer Typing / Speech Box */}
             <div className="relative flex items-center">
               <input
                 type="text"
                 value={manualAnswerText}
+                onPaste={() => recordIntegrityEvent('answer_paste')}
                 onChange={(e) => setManualAnswerText(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleAnswerSubmit();
@@ -517,6 +826,16 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
                 <CornerDownLeft className="w-3.5 h-3.5" />
               </button>
             </div>
+            <label className="mt-2 flex items-center justify-center gap-2 text-[11px] text-slate-400 select-none">
+              <input
+                type="checkbox"
+                checked={autoSendAfterPause}
+                onChange={(event) => setAutoSendAfterPause(event.target.checked)}
+                disabled={sashaState === 'thinking'}
+                className="accent-sky-400"
+              />
+              Auto-send after 1.8 seconds of silence
+            </label>
           </div>
         </main>
 
@@ -526,7 +845,7 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
           <div className="glass-panel rounded-2xl p-3 border border-white/[0.07] relative">
             <div className="flex items-center justify-between text-xs font-mono text-slate-400 mb-2 px-1">
               <span>Candidate Feed</span>
-              <span className="text-emerald-400 text-[10px] uppercase">Gaze Sync Active</span>
+              <span className="text-slate-400 text-[10px] uppercase">{integrityMonitoringEnabled ? 'Opt-in camera signals' : 'Preview only'}</span>
             </div>
 
             <div className="relative rounded-xl overflow-hidden aspect-video bg-black/50 border border-white/[0.08]">
@@ -548,7 +867,7 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
               {/* Live Status Overlay */}
               <div className="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-sm text-[10px] font-mono text-slate-300">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span>30 FPS</span>
+                <span>Live preview</span>
               </div>
             </div>
           </div>
@@ -599,7 +918,7 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
       {/* Bottom Bar Studio Controls */}
       <footer className="h-16 border-t border-white/[0.07] px-6 flex items-center justify-between bg-[#0a0d15]/80 backdrop-blur-md shrink-0">
         <div className="text-xs font-mono text-slate-500 hidden sm:block">
-          Sasha Autonomous Session • Biometric Anti-Cheat Loop Active
+          Practice interview • Review signals {integrityMonitoringEnabled ? 'On' : 'Off'}
         </div>
 
         <div className="flex items-center gap-3 mx-auto sm:mx-0">
@@ -631,7 +950,7 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
 
           {/* End Session Button */}
           <button
-            onClick={() => onCompleteSession(session_id)}
+            onClick={completeAfterEvidence}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 transition-colors"
           >
             <PhoneOff className="w-4 h-4" />
@@ -640,7 +959,7 @@ export default function InterviewRoom({ sessionData, onCompleteSession }) {
         </div>
 
         <div className="text-xs font-mono text-slate-500 hidden sm:block">
-          NYC Local Law 144
+          Experimental prototype
         </div>
       </footer>
     </div>

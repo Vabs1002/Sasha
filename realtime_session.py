@@ -1,6 +1,7 @@
 """
 Interactive Real-Time Conversational Session
-Exercises streaming tokens, zero-dead-air fillers, Hybrid RRF RAG, and barge-in interruption.
+Standalone terminal demo for provider text streaming and optional resume retrieval.
+It is separate from the browser interview flow and does not capture live microphone audio.
 """
 
 import asyncio
@@ -19,9 +20,9 @@ Proficient in Python, PyTorch, FAISS, Docker, Kubernetes, and FastAPI.
 async def run_session():
     print("=" * 65)
     print("  SASHA AI INTERVIEWER - REAL-TIME CONVERSATIONAL SESSION")
-    print("  (Full-Duplex Streaming + Barge-In + True Hybrid RRF RAG)")
+    print("  (Experimental text streaming; browser voice interview is a separate flow)")
     print("=" * 65)
-    print("Type your answer as a candidate. Type 'interrupt' while speaking to test barge-in.")
+    print("Type your answer as a candidate. The terminal demo does not support live barge-in.")
     print("Type 'exit' to quit.\n")
 
     orchestrator = RealtimeOrchestrator()

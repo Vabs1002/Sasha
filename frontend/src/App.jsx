@@ -21,10 +21,10 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleStartSession = async ({ resumeFile, jdText }) => {
+  const handleStartSession = async ({ resumeFile, jdText, integrityMonitoringConsent, evidenceCaptureConsent }) => {
     setIsStarting(true);
     try {
-      const data = await startInterview(resumeFile, jdText);
+      const data = await startInterview(resumeFile, jdText, integrityMonitoringConsent, evidenceCaptureConsent);
       setSessionData(data);
       setCurrentView('room');
     } catch (err) {

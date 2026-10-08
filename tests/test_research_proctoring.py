@@ -1,11 +1,6 @@
 """
-Unit and integration tests for Research-Grade Anti-Cheating & Proctoring Suite.
-Verifies:
-  1. Perspective-n-Point 3D Head Pose (Li et al. 2021, Ruiz et al. CVPR 2018)
-  2. Iris-Based Gaze Estimation (MPIIGaze: Zhang et al. TPAMI 2019)
-  3. Eye Aspect Ratio (EAR) & Blink Saccades (Soukupov\u00e1 & \u010cech 2016)
-  4. Mouth Aspect Ratio (MAR) Lip-Sync & Proxy Speaker Detection (SyncNet: Chung & Zisserman 2016)
-  5. Backwards-compatible resilient fallback handling
+Unit tests for camera-signal geometry and fallback behavior.
+Synthetic landmark tests check helper calculations; they do not validate cheating detection accuracy.
 """
 import sys
 import os

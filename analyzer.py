@@ -4,6 +4,8 @@ import re
 import torch
 import numpy as np
 import logging
+import threading
+from functools import lru_cache
 from typing import Tuple, Optional, Union, Dict, Any, List
 
 try:
@@ -15,16 +17,31 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load models once
+# Load the answer-perplexity model only when its explicitly enabled experimental
+# signal is requested. Importing the API should not download/load DistilGPT-2.
+_perplexity_model = None
+_perplexity_tokenizer = None
+_perplexity_model_lock = threading.Lock()
+
 try:
-    _perplexity_model = AutoModelForCausalLM.from_pretrained("distilgpt2")
-    _perplexity_tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
     _embedder = SentenceTransformer('all-MiniLM-L6-v2')
-    logger.info("Successfully loaded NLP models for analysis")
+    logger.info("Successfully loaded sentence embedding model for analysis")
 except Exception as e:
-    logger.error(f"Failed to load NLP models: {str(e)}")
+    logger.error(f"Failed to load sentence embedding model: {str(e)}")
     raise
 
+
+def _get_perplexity_model():
+    global _perplexity_model, _perplexity_tokenizer
+    if _perplexity_model is None or _perplexity_tokenizer is None:
+        with _perplexity_model_lock:
+            if _perplexity_model is None or _perplexity_tokenizer is None:
+                logger.info("Loading optional DistilGPT-2 perplexity model")
+                _perplexity_model = AutoModelForCausalLM.from_pretrained("distilgpt2")
+                _perplexity_tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
+    return _perplexity_model, _perplexity_tokenizer
+
+@lru_cache(maxsize=16)
 def _build_faiss_index(text: str) -> Tuple[Optional[object], Optional[list]]:
     """
     Build a FAISS index (inner product) over sentence embeddings of the text.
@@ -56,6 +73,13 @@ def _build_faiss_index(text: str) -> Tuple[Optional[object], Optional[list]]:
         logger.error(f"Error building FAISS index: {str(e)}")
         return None, None
 
+
+@lru_cache(maxsize=16)
+def _cached_resume_embedding(text: str) -> tuple:
+    """Reuse resume vectors across turns; only each new answer needs encoding."""
+    vector = _embedder.encode([text], normalize_embeddings=True)[0]
+    return tuple(float(value) for value in vector)
+
 def get_perplexity(text: str) -> float:
     """
     Calculate perplexity score for text using DistilGPT-2.
@@ -75,9 +99,10 @@ def get_perplexity(text: str) -> float:
         raise ValueError("Text cannot be empty for perplexity calculation")
 
     try:
-        inputs = _perplexity_tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
+        model, tokenizer = _get_perplexity_model()
+        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
         with torch.no_grad():
-            loss = _perplexity_model(**inputs, labels=inputs["input_ids"]).loss
+            loss = model(**inputs, labels=inputs["input_ids"]).loss
         perplexity = torch.exp(loss).item()
         logger.debug(f"Calculated perplexity: {perplexity}")
         return perplexity
@@ -144,7 +169,7 @@ def get_consistency(resume_text: str, answer_text: str) -> float:
         else:
             # Fallback to cosine similarity of whole texts
             logger.debug("Using fallback cosine similarity calculation")
-            resume_emb = _embedder.encode([resume_text])[0]
+            resume_emb = _cached_resume_embedding(resume_text)
             answer_emb = _embedder.encode([answer_text])[0]
             dot = sum(a*b for a,b in zip(resume_emb, answer_emb))
             norm_a = sum(a*a for a in resume_emb) ** 0.5
@@ -277,7 +302,7 @@ def detect_speech_stress(transcript: str, disfluency_rate: float, perplexity: fl
             signals.append("mild_backtracking")
 
         # Signal 4: Perplexity extremes — NATIVE SPEAKERS ONLY
-        if native_speaker and perplexity > 250:
+        if native_speaker and perplexity is not None and perplexity > 250:
             stress_score += 0.15
             signals.append("chaotic_answer_structure")
 
@@ -337,19 +362,12 @@ def estimate_head_eye_signals(face_landmarks: Optional[Dict[str, Any]] = None) -
     }
 
 # ---------------------------------------------------------------------------
-# Research-Grade Computer Vision Anti-Cheating & Proctoring Suite
+# Experimental Camera Signal Analysis
 #
-# Primary Engine: MediaPipe 478-Landmark FaceMesh with Iris Refinement
-# References:
-#   1. 3D Head Pose: Perspective-n-Point (cv2.solvePnP) with Anthropometric Face Model
-#      (Li et al., 2021; Ruiz et al., CVPR 2018)
-#   2. Gaze Estimation: Iris-to-Canthus Horizontal & Vertical Ratios
-#      (MPIIGaze: Zhang et al., TPAMI 2019; GazeCapture: Krafka et al., CVPR 2016)
-#   3. Eye Aspect Ratio (EAR) & Reading Saccades:
-#      (Soukupová & Čech, 2016 "Real-Time Eye Blink Detection")
-#   4. Lip-Sync & Proxy Speaker: Landmark Mouth Aspect Ratio (MAR) Dynamics
-#      (SyncNet: Chung & Zisserman, ACCV 2016)
-# Fallback Engine: OpenCV MultiScale Haar Cascade & Frame-Delta differencing
+# Uses MediaPipe FaceMesh or an OpenCV fallback for approximate face/gaze signals.
+# This code does not detect phones or other objects and is not validated for hiring.
+# This is a heuristic signal pipeline, not a validated identity or cheating detector.
+# It does not implement a trained gaze, saccade, or audio-visual identity model.
 # ---------------------------------------------------------------------------
 
 # Canonical 3D anthropometric facial landmark model (points in mm, origin at nose tip)
@@ -381,7 +399,7 @@ def get_face_mesh_detector():
                 min_detection_confidence=0.5,
                 min_tracking_confidence=0.5
             )
-            logger.info("Initialized MediaPipe FaceMesh with Iris refinement for research-grade proctoring")
+            logger.info("Initialized MediaPipe FaceMesh with iris refinement")
         except Exception as e:
             logger.warning(f"MediaPipe FaceMesh initialization failed: {e}. Falling back to OpenCV.")
             _face_mesh_detector = False
@@ -410,8 +428,8 @@ def rotation_matrix_to_euler_angles(rmat: np.ndarray) -> Tuple[float, float, flo
 
 def estimate_head_pose_pnp(landmarks, frame_w: int, frame_h: int) -> Tuple[float, float, float]:
     """
-    Computes authentic 3D head pose Euler angles (Pitch, Yaw, Roll) via Perspective-n-Point.
-    Reference: Li et al. (2021) / Ruiz et al. (CVPR 2018).
+    Estimates head-pose angles from face landmarks using a generic PnP setup.
+    Treat the angles as approximate; camera calibration and candidate-specific validation are absent.
     """
     import cv2
     img_pts = np.array([
@@ -444,9 +462,8 @@ def estimate_head_pose_pnp(landmarks, frame_w: int, frame_h: int) -> Tuple[float
 
 def estimate_iris_gaze(landmarks, frame_w: int, frame_h: int) -> Dict[str, Any]:
     """
-    Calculates Horizontal Gaze Ratio (HGR) and Vertical Gaze Ratio (VGR)
-    using iris landmarks (468, 473) relative to canthi and eyelids.
-    Reference: MPIIGaze (Zhang et al. TPAMI 2019).
+    Estimates normalized horizontal and vertical gaze ratios from iris and eyelid landmarks.
+    A downward gaze is only a direction estimate; it does not detect a phone or object.
     """
     pts = landmarks
     # Left eye: iris 468, inner canthus 362, outer canthus 263, top eyelid 386, bottom eyelid 374
@@ -484,7 +501,7 @@ def estimate_iris_gaze(landmarks, frame_w: int, frame_h: int) -> Dict[str, Any]:
         direction = "RIGHT_SCREEN"
         is_looking_away = True
     elif v_ratio > 0.72:
-        direction = "DOWN_PHONE_DESK"
+        direction = "DOWNWARD"
         is_looking_away = True
     elif v_ratio < 0.28:
         direction = "UP_CEILING"
@@ -501,8 +518,7 @@ def estimate_iris_gaze(landmarks, frame_w: int, frame_h: int) -> Dict[str, Any]:
 
 def calculate_mouth_aspect_ratio(landmarks, frame_w: int, frame_h: int) -> float:
     """
-    Calculates Mouth Aspect Ratio (MAR) for speech verification and proxy speaker detection.
-    Reference: SyncNet (Chung & Zisserman, ACCV 2016).
+    Calculates a simple mouth-aspect ratio from face landmarks.
     """
     pts = landmarks
     lip_top = np.array([pts[13].x * frame_w, pts[13].y * frame_h])
@@ -515,8 +531,8 @@ def calculate_mouth_aspect_ratio(landmarks, frame_w: int, frame_h: int) -> float
 
 def analyze_video_frame_proctoring(frame: Optional[np.ndarray] = None) -> Dict[str, Any]:
     """
-    Research-grade computer vision proctoring analysis of a candidate's camera frame.
-    Integrates 3D Head Pose (cv2.solvePnP), Iris Gaze Tracking (MPIIGaze), and multi-presence detection.
+    Experimental face-presence, approximate head-pose, and gaze analysis for one camera frame.
+    These signals are not object detection, identity verification, or proof of misconduct.
     
     Returns:
         {
@@ -652,9 +668,8 @@ def analyze_video_frame_proctoring(frame: Optional[np.ndarray] = None) -> Dict[s
 
 def calculate_eye_contact_score(frame: Optional[np.ndarray], target_box: Optional[Tuple[int, int, int, int]] = None) -> Dict[str, Any]:
     """
-    Measures candidate's eye-contact alignment with on-screen target (AI Eyes / Camera).
-    Combines 3D Head Pose vector with Iris Gaze Ratio.
-    Detects nervousness vs. reading from a second monitor or phone.
+    Estimates face/head alignment with the camera from head pose and available iris landmarks.
+    This score does not detect emotion, phones, reading, or external assistance.
     
     Returns:
         {
@@ -718,9 +733,8 @@ def verify_audio_visual_speech_sync(
     audio_active: bool
 ) -> Dict[str, Any]:
     """
-    Verifies that the candidate's mouth is actively moving in synchrony with speech audio.
-    Combines landmark-based Mouth Aspect Ratio (MAR) with inter-frame optical differencing.
-    Reference: SyncNet (Chung & Zisserman, ACCV 2016).
+    Heuristically compares mouth movement between frames with a client-reported audio-active flag.
+    This cannot verify speaker identity or establish that someone else is answering.
     
     Returns:
         {
@@ -1006,6 +1020,19 @@ def detect_ai_generated_answer(
         "nudge_prompt": nudge,
         "incident_reason": incident
     }
+
+
+def detect_explicit_answer_request(transcript: str) -> bool:
+    """Flag a direct request for the interviewer to supply an answer or solution."""
+    if not transcript or not transcript.strip():
+        return False
+    patterns = (
+        r"\b(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+)?(?:give|tell|show|provide)\s+(?:me\s+)?(?:(?:the|an?)\s+)?(?:answer|solution|code|implementation)\b",
+        r"\b(?:what\s+is|what's|whats)\s+the\s+(?:answer|solution|code)\b",
+        r"\b(?:just\s+)?(?:give|tell|show)\s+me\s+the\s+(?:answer|solution|code)\b",
+        r"\b(?:solve|write|do|answer)\s+(?:this|it|the\s+problem)\s+for\s+me\b",
+    )
+    return any(re.search(pattern, transcript, re.IGNORECASE) for pattern in patterns)
 
 def detect_conduct_violation(transcript: str) -> Dict[str, Any]:
     """

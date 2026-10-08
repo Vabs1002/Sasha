@@ -2,6 +2,7 @@ import os
 import sys
 import pytest
 import asyncio
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -27,12 +28,21 @@ def test_fsm_invalid_transition_rejected():
 
 def test_orchestrator_turn_streaming():
     async def _test():
-        orchestrator = RealtimeOrchestrator()
+        chunks = [
+            SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="Tell me "))]),
+            SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="more."))]),
+        ]
+        provider = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kwargs: iter(chunks))
+            )
+        )
+        orchestrator = RealtimeOrchestrator(provider_client=provider, model="mock-stream")
         tokens = []
         async for event in orchestrator.process_turn("I built a recommendation system using Kafka", "Led Kafka system design"):
             if event.get("type") == "token":
                 tokens.append(event["text"])
-        assert len(tokens) > 0
+        assert tokens == ["Tell me ", "more."]
     asyncio.run(_test())
 
 def test_orchestrator_barge_in():
@@ -43,6 +53,7 @@ def test_orchestrator_barge_in():
         async for event in orchestrator.process_turn("I scaled the database", "Database scaling expert"):
             events.append(event.get("type"))
         assert "interrupted" in events
+        assert not orchestrator.interrupt_event.is_set()
     asyncio.run(_test())
 
 def test_background_audio_anomaly():

@@ -63,3 +63,4 @@ logs/
 tmp/
 interview_report_*.pdf
 interview_report_*.html
+data/private/

@@ -17,6 +17,8 @@ import SashaPresence from './SashaPresence';
 export default function LobbyView({ onStartSession, isStarting = false, serverOnline = true }) {
   const [resumeFile, setResumeFile] = useState(null);
   const [jdText, setJdText] = useState('');
+  const [integrityMonitoringConsent, setIntegrityMonitoringConsent] = useState(false);
+  const [evidenceCaptureConsent, setEvidenceCaptureConsent] = useState(false);
   const [showJd, setShowJd] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
@@ -55,7 +57,7 @@ export default function LobbyView({ onStartSession, isStarting = false, serverOn
       setErrorMessage('Please upload your resume to begin.');
       return;
     }
-    onStartSession({ resumeFile, jdText });
+    onStartSession({ resumeFile, jdText, integrityMonitoringConsent, evidenceCaptureConsent });
   };
 
   return (
@@ -81,7 +83,7 @@ export default function LobbyView({ onStartSession, isStarting = false, serverOn
             <span className={`w-2 h-2 rounded-full ${serverOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
             <span className="text-slate-300">{serverOnline ? 'BACKEND READY' : 'BACKEND OFFLINE (PORT 8000)'}</span>
           </div>
-          <span className="text-slate-500 hidden sm:inline">NYC LAW 144 AUDIT READY</span>
+          <span className="text-slate-500 hidden sm:inline">INTERVIEW PROTOTYPE</span>
         </div>
       </header>
 
@@ -178,6 +180,41 @@ export default function LobbyView({ onStartSession, isStarting = false, serverOn
             )}
           </div>
 
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.025] p-4 text-left">
+            <label className="flex items-start gap-3 text-xs text-slate-200">
+              <input
+                type="checkbox"
+                checked={integrityMonitoringConsent}
+                onChange={(e) => {
+                  setIntegrityMonitoringConsent(e.target.checked);
+                  if (!e.target.checked) setEvidenceCaptureConsent(false);
+                }}
+                className="mt-0.5 accent-sky-400"
+              />
+              <span>
+                <span className="font-medium">Opt in to limited integrity monitoring (optional)</span>
+                <span className="mt-1 block leading-relaxed text-slate-400">
+                  If enabled, Sasha records timestamps for when this page is hidden or loses focus, and when text is pasted into the answer box. It also sends reduced-size camera frames for face/gaze/mouth-movement checks and applies statistical heuristics to answer text for possible scripted responses. These checks can be wrong. Sasha cannot identify which website or extension was used, read other tabs or URLs, clipboard contents, screen contents, or activity on another device. Browser page/focus/paste events are never scored; camera and answer-text flags are unverified and may only prompt follow-up or human review. Leave this unchecked to disable these optional integrity checks.
+                </span>
+              </span>
+            </label>
+            <label className={`flex items-start gap-3 text-xs mt-4 ${integrityMonitoringConsent ? 'text-slate-200' : 'text-slate-500'}`}>
+              <input
+                type="checkbox"
+                checked={evidenceCaptureConsent}
+                disabled={!integrityMonitoringConsent}
+                onChange={(e) => setEvidenceCaptureConsent(e.target.checked)}
+                className="mt-0.5 accent-sky-400"
+              />
+              <span>
+                <span className="font-medium">Separately opt in to saving camera evidence (optional)</span>
+                <span className="mt-1 block leading-relaxed text-slate-400">
+                  Only after a repeated camera alert, Sasha saves one reduced-size still and up to five seconds of camera-only video beginning at that alert. No audio is recorded. Evidence is stored privately for 30 days, then automatically deleted. Looking away, another face, or a camera mismatch can have innocent causes; evidence is for human review and does not establish cheating. No evidence is saved when this box is unchecked.
+                </span>
+              </span>
+            </label>
+          </div>
+
           {/* Error Banner if any */}
           {errorMessage && (
             <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs text-left">
@@ -241,9 +278,9 @@ export default function LobbyView({ onStartSession, isStarting = false, serverOn
             <ShieldCheck className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-xs font-semibold text-slate-200 uppercase font-mono tracking-wider">NYC Law 144 Compliant</h3>
+            <h3 className="text-xs font-semibold text-slate-200 uppercase font-mono tracking-wider">Experimental review signals</h3>
             <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              Zero accent or facial emotion scoring. Evaluation is purely evidentiary and technical.
+              Camera and answer-pattern checks can be wrong. They do not prove cheating or determine a hiring decision.
             </p>
           </div>
         </div>

@@ -9,7 +9,7 @@ import tempfile
 # Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-def test_imports():
+def check_imports():
     """Test that core modules can be imported"""
     try:
         import resume_parser
@@ -22,7 +22,7 @@ def test_imports():
         print(f"[FAIL] Import failed: {e}")
         return False
 
-def test_resume_parser():
+def check_resume_parser():
     """Test resume parser with sample text file"""
     try:
         from resume_parser import parse_resume
@@ -68,7 +68,7 @@ def test_resume_parser():
         print(f"[FAIL] Resume parser test setup failed: {e}")
         return False
 
-def test_signal_detector():
+def check_signal_detector():
     """Test signal detector basic functionality"""
     try:
         from signal_detector import detect_role
@@ -100,7 +100,7 @@ def test_signal_detector():
         print(f"[FAIL] Signal detector test failed: {e}")
         return False
 
-def test_analyzer():
+def check_analyzer():
     """Test analyzer basic functionality"""
     try:
         from analyzer import get_disfluency_rate, get_consistency
@@ -131,10 +131,10 @@ def main():
     print("Running basic functionality tests for Sasha AI Interviewer...\n")
 
     tests = [
-        test_imports,
-        test_resume_parser,
-        test_signal_detector,
-        test_analyzer
+        check_imports,
+        check_resume_parser,
+        check_signal_detector,
+        check_analyzer
     ]
 
     passed = 0

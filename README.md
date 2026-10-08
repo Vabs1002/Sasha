@@ -1,4 +1,4 @@
-# Sasha — Autonomous Full-Duplex AI Technical Interviewer & Executive Evaluation Engine
+# Sasha — Resume-Informed Technical Interview Prototype
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688.svg)](https://fastapi.tiangolo.com)
@@ -7,13 +7,11 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C.svg)](https://pytorch.org)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10.14-007FFF.svg)](https://developers.google.com/mediapipe)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.11-5C3EE8.svg)](https://opencv.org)
-[![Tests Passing](https://img.shields.io/badge/tests-76%2F76%20passed-brightgreen.svg)](https://github.com/Vabs1002/Sasha)
-[![Compliance](https://img.shields.io/badge/NYC%20LL144-Audited%20%26%20Compliant-purple.svg)](https://www.nyc.gov/site/dca/about/automated-employment-decision-tools.page)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Sasha is a resume-driven, full-duplex multimodal AI technical interviewer engineered to conduct software engineering and applied machine learning evaluations with the rigor, empathy, and adaptive depth of a senior staff interviewer at top-tier engineering organizations (Google, Meta, Adobe, Microsoft).
+Sasha is an experimental prototype for resume-informed, voice-based technical interviews. A candidate can provide a resume and optional job description, answer interview questions by voice or text, and receive a generated transcript and rubric summary.
 
-Unlike scripted assessment forms or brittle single-prompt wrappers, Sasha operates as an **adversarial, real-time closed-loop cognitive system**: dynamically probing candidate code architectures, verifying resume claims via semantic vector indexing, dynamically modulating technical difficulty via psychometric Item Response Theory (IRT), and enforcing evidentiary proctoring grounded in peer-reviewed computer vision research.
+This project is not independently validated for employment decisions. It does not run coding tasks, verify resume claims, identify browser extensions or phones, or determine whether a candidate cheated. Camera evidence capture is a separate, optional consent: after a repeated camera alert, it can save a reduced-size still and up to five seconds of camera-only video. Evidence is stored privately for 30 days and is intended only for human review. Optional camera and browser signals can be wrong and are not proof of misconduct.
 
 ---
 
@@ -28,8 +26,8 @@ Unlike scripted assessment forms or brittle single-prompt wrappers, Sasha operat
                        ▼                                                             ▼
            [ Candidate Resume (.pdf/.docx) ]                             [ Target Job Description ]
                        │                                                             │
-         spaCy NER & Heuristic Layout Parser                            Hybrid Semantic & Keyword Index
-       (Name, Tenure, Seniority, Tech Stack)                        (BM25 Lexical + FAISS Dense Vector RRF)
+         Resume text extraction and heuristics                         Optional job-description text
+       (Fields depend on document quality)                              (Context for interview generation)
                        │                                                             │
          Logistic Regression Role Classifier                                         │
         (SDE, ML Eng, Backend, DevOps, Data)                                        │
@@ -38,59 +36,51 @@ Unlike scripted assessment forms or brittle single-prompt wrappers, Sasha operat
                                                       │
                                                       ▼
                                   ┌────────────────────────────────────────┐
-                                  │   2. FULL-DUPLEX REAL-TIME ORCHESTRATOR │
+                                  │   2. REAL-TIME SESSION ORCHESTRATOR     │
                                   │       (FastAPI WebSocket Event Loop)   │
                                   └───────────────────┬────────────────────┘
                                                       │
          ┌────────────────────────────────────────────┼────────────────────────────────────────────┐
          ▼                                            ▼                                            ▼
 ┌─────────────────────────────────┐      ┌─────────────────────────────────┐      ┌─────────────────────────────────┐
-│     COMPUTER VISION PROCTOR     │      │     CONVERSATIONAL & AUDIO      │      │       LOCAL NLP TELEMETRY       │
-│        (13.1 ms CPU Loop)       │      │   (<50ms Barge-In, Gated Mic)   │      │        (PyTorch Models)         │
+│   OPTIONAL CAMERA SIGNALS       │      │     INTERVIEW UI & API          │      │     TEXT ANALYSIS               │
+│    (Opt-in, experimental)       │      │     (React + FastAPI)           │      │   (Unvalidated heuristics)      │
 ├─────────────────────────────────┤      ├─────────────────────────────────┤      ├─────────────────────────────────┤
-│ • 3D Head Pose (PnP):           │      │ • Full-Duplex WebSockets:       │      │ • DistilGPT-2 Token Perplexity: │
-│   Canonical 3D mesh + solvePnP  │      │   Bidirectional audio/data      │      │   Flags AI teleprompter (L<32)  │
-│   Computes true Euler angles    │      │ • Acoustic Echo Isolation:      │      │ • Speech Disfluency Rate:       │
-│   Yaw (ψ), Pitch (θ), Roll (ϕ)  │      │   Gates mic while Sasha speaks  │      │   Measures natural fillers      │
-│ • MPIIGaze Iris Deflection:     │      │   to prevent self-transcription │ • FAISS Semantic Consistency:   │
-│   MediaPipe 478 landmarks       │      │ • Instant Zero-Latency Speech:  │      │   Ranks answer claims against   │
-│   HGR/VGR conjugate ratios      │      │   Native Web Speech synthesis   │   resume embeddings via RRF     │
-│ • SyncNet Lip-Sync (MAR):       │      │ • Conversational Barge-In:      │ • Knowledge Gap & Stress:       │
-│   Mouth Aspect Ratio verification│     │   Cuts Sasha off <50ms when     │   Acoustic noise + hesitation   │
-│   Detects proxy speaker attacks │      │   candidate interrupts manually │   linguistic anomaly detection  │
+│ • Experimental face signals    │      │ • Interview API / WebSocket     │      │ • Resume-answer similarity     │
+│ • Periodic camera frames        │      │ • Interview transcript          │      │ • Statistical answer signals    │
+│ • Head/gaze direction estimate  │      │ • Browser speech/text input     │      │ • Cannot identify AI source    │
+│ • No phone/object recognition   │      │ • Optional interaction events │      │ • No AI-use attribution        │
+│ • Opt-in event evidence      │      │ • Opt-in event evidence     │      │ • Not a misconduct finding     │
 └────────────────┬────────────────┘      └────────────────┬────────────────┘      └────────────────┬────────────────┘
                  │                                        │                                        │
                  └────────────────────────────────────────┼────────────────────────────────────────┘
                                                           │
                                                           ▼
                                   ┌────────────────────────────────────────┐
-                                  │   3. ADAPTIVE PSYCHOMETRIC COGNITION   │
-                                  │      (2-Parameter Item Response Theory)│
+                                  │   3. ADAPTIVE INTERVIEW FLOW           │
+                                  │      (Not psychometrically validated)  │
                                   └───────────────────┬────────────────────┘
                                                       │
                        ┌──────────────────────────────┴──────────────────────────────┐
                        ▼                                                             ▼
-           [ Latent Competency θ ∈ [0.2, 1.0] ]                        [ Calibrated De-Escalation ]
-         Dynamically recalibrates technical depth                      • Strike 1: Firm boundary warning
-         P(Y=1|θ) = 1 / (1 + exp(-a(θ - b)))                           • Strike 2: Instant session termination
-         Modulates probe difficulty based on verified                  • Silent evidentiary logging of verbatim
-         depth, consistency, and knowledge gaps                        phrases for human HR review
+         [ Adaptive Question Selection ]                               [ Conversation Boundary Prompts ]
+         Uses the configured question/competency bank                  May stop a session after repeated conduct flags
+         and interview context                                           Flags are not a hiring decision
                        │                                                             │
                        └──────────────────────────────┬──────────────────────────────┘
                                                       │
                                                       ▼
                                   ┌────────────────────────────────────────┐
-                                  │     4. AUDIT & EXECUTIVE DELIVERABLES  │
-                                  │        (NYC Local Law 144 Compliant)   │
+                                  │     4. REPORT GENERATION               │
+                                  │        (Human Review Required)          │
                                   └───────────────────┬────────────────────┘
                                                       │
                        ┌──────────────────────────────┴──────────────────────────────┐
                        ▼                                                             ▼
-           [ Executive Debrief PDF ]                                    [ Verified Telemetry Audit ]
-         • Executive hiring recommendation                             • Full turn-by-turn verbatim transcript
-         • Competency matrix & radar breakdown                         • Exact timestamps for all proctor flags
-         • NYC LL144 bias-audit disclosures                            • Objective proof statements (Euler angles,
-         • PyMuPDF multi-page vector layout                             HGR ratios, token perplexity scores)
+           [ Interview Summary PDF/HTML ]                               [ Optional Signal Summary ]
+         • Rubric estimates with response excerpts                    • Some event timestamps and descriptions
+         • Turn-by-turn transcript                                     • Opt-in alert evidence links, if saved
+         • Optional follow-up prompts                                  • Signals are unverified context
 ```
 
 ---
@@ -104,82 +94,21 @@ Unlike scripted assessment forms or brittle single-prompt wrappers, Sasha operat
 
 ---
 
-### 2. Research-Grade Computer Vision Suite (`analyzer.py`)
+### 2. Experimental Camera Signals (`analyzer.py`)
 
-Sasha replaces naive 2D bounding boxes and heuristic timers with peer-reviewed computer vision research formulations running locally at **13.1 ms per frame (~76.2 FPS)** on CPU:
-
-#### A. 3D Perspective-n-Point Head Pose Estimation
-* **Citations**: *Li et al. (2021)* — *"Automated Online Exam Proctoring Using Head Pose and Eye Gaze"*, IEEE Access; *Ruiz et al. (CVPR 2018)* — *"Fine-Grained Head Pose Estimation Without Keypoints"*.
-* **Problem Solved**: 2D bounding-box heuristics falsely flag candidates as "turned away" whenever they sit off-center in front of their webcam.
-* **Mathematical Formulation**: We define a canonical 3D anthropometric face model ($\text{FACE\_3D\_MODEL\_POINTS}$) using 6 key facial landmarks (nose tip `1`, chin `152`, left canthus `263`, right canthus `33`, mouth left `291`, mouth right `61`). We solve the Perspective-n-Point problem via Levenberg-Marquardt optimization:
-
-$$\min_{R, t} \sum_{i=1}^{N} \left\| x_i - \text{Proj}\left(K, R, t, X_i\right) \right\|^2$$
-
-Where $K$ is the intrinsic camera matrix, $R$ is the rotation matrix, $t$ is the translation vector, $X_i \in \mathbb{R}^3$ are canonical 3D model landmarks, and $x_i \in \mathbb{R}^2$ are observed 2D image coordinates. Decomposing $R$ via Rodrigues rotation produces true Euler angles: **Yaw ($\psi$)**, **Pitch ($\theta$)**, and **Roll ($\phi$)**.
-* **Thresholds**: Head turn anomalies are flagged only when $|\psi| > 25^\circ$ or $|\theta| > 20^\circ$, invariant to candidate lateral position in the camera frame.
-
-#### B. Iris-Based Gaze Tracking (MPIIGaze Ratios)
-* **Citations**: *Zhang et al. (IEEE TPAMI 2019)* — *"MPIIGaze: Real-World Dataset and Deep Appearance-Based Gaze Estimation"*; *Krafka et al. (CVPR 2016)* — *"Eye Tracking for Everyone"*.
-* **Formulation**: Using MediaPipe 478-landmark FaceMesh with `refine_landmarks=True`, we extract the exact center of each cornea/iris (`468`, `473`), medial canthi (`362`, `133`), and lateral canthi (`263`, `33`). Directional Horizontal Gaze Ratio ($\text{HGR}$) and Vertical Gaze Ratio ($\text{VGR}$) are computed across normalized eye bounds:
-
-$$\text{HGR}_{\text{eye}} = \frac{x_{\text{iris}} - \min(x_{\text{inner}}, x_{\text{outer}})}{\max(x_{\text{inner}}, x_{\text{outer}}) - \min(x_{\text{inner}}, x_{\text{outer}})}$$
-
-$$\text{VGR}_{\text{eye}} = \frac{y_{\text{iris}} - \min(y_{\text{upper}}, y_{\text{lower}})}{\max(y_{\text{upper}}, y_{\text{lower}}) - \min(y_{\text{upper}}, y_{\text{lower}})}$$
-
-* **Classification Thresholds**:
-  * Center Screen Focus: $0.42 \le \text{HGR} \le 0.58$
-  * Secondary Monitor Deflection: $\text{HGR} < 0.36$ (Looking Left) or $\text{HGR} > 0.64$ (Looking Right)
-  * Desk / Mobile Phone Peeking: $\text{VGR} > 0.72$ (Looking Downward)
-
-#### C. Eye Aspect Ratio (EAR) & Reading Saccades
-* **Citation**: *Soukupová & Čech (2016)* — *"Real-Time Eye Blink Detection using Facial Landmarks"*, Computer Vision Winter Workshop.
-* **Formulation**:
-
-$$\text{EAR} = \frac{\|p_2 - p_6\| + \|p_3 - p_5\|}{2 \cdot \|p_1 - p_4\|}$$
-
-Tracks rapid saccadic oscillation patterns characteristic of reading teleprompters or LLM browser tabs rather than organic conversational recall.
-
-#### D. SyncNet Active Lip-Sync & Proxy Speaker Detection (MAR)
-* **Citation**: *Chung & Zisserman (ACCV 2016)* — *"Out of time: automated lip sync in the wild"*, SyncNet Architecture.
-* **Formulation**: Measures Mouth Aspect Ratio (MAR) using landmarks `13`, `14` (inner vermilion borders) and `61`, `291` (oral commissures):
-
-$$\text{MAR} = \frac{\|p_{13} - p_{14}\|}{\|p_{61} - p_{291}\|}$$
-
-* **Detection Logic**: If microphone audio is active, but candidate mouth aspect ratio remains clamped shut ($\text{MAR} < 0.07$) with near-zero frame-to-frame delta ($\Delta\text{MAR} < 0.02$) over 3 consecutive frames, Sasha flags a `proxy_speaker_suspected` integrity incident.
+When the candidate opts in to integrity monitoring, the browser sends reduced-size camera frames for face presence, multiple-face, head/gaze direction, and possible audio/video speaking-mismatch checks. A second, unchecked-by-default consent is required to save evidence. After a repeated server-generated camera alert, the browser captures a 320×180 still and up to five seconds of 320×180, 10 fps camera-only video beginning at the alert; no microphone audio is recorded. Files are kept outside the public frontend directory, expire after 30 days, and can be reviewed or deleted from the debrief. Capture depends on browser camera and recording support. The app has no phone/object detector. These checks do not identify people or establish cheating; treat an alert as an unverified prompt for human review.
 
 ---
 
-### 3. Psychometric IRT Engine (`interviewer_agent.py`)
+### 3. Adaptive Interview Flow (`interviewer_agent.py`)
 
-Instead of static linear questionnaires, Sasha models candidate latent technical competency $\theta \in [0.20, 1.00]$ using a **2-Parameter Logistic Item Response Theory (2PL-IRT)** model:
-
-$$P(Y=1 \mid \theta) = \frac{1}{1 + e^{-a(\theta - b)}}$$
-
-Where:
-* $\theta$: Candidate latent technical proficiency.
-* $b$: Item difficulty parameter (calibrated turn-by-turn).
-* $a$: Discrimination parameter.
-
-After each turn, candidate ability is updated as a function of semantic consistency $C$, token perplexity $\mathcal{L}$, conversational stress $S$, and detected technical knowledge gaps $G$:
-
-$$\Delta\theta = \eta \cdot \Big( w_1(C - 0.5) + w_2\frac{\min(\mathcal{L}, 120) - 50}{70} - w_3(S) - w_4(G) \Big)$$
-
-Candidates demonstrating deep architectural command are dynamically escalated to distributed consensus, race condition debugging, and high-concurrency systems design.
+The opening exchange first summarizes the role and experience inferred from the resume, discloses the supportive practice format, and asks the candidate to confirm or correct the profile. This setup response is not scored as an interview turn. Sasha then asks about a resume project and selects follow-ups using interview context, the configured competency bank, and the candidate's responses. When a job description is provided, its summary is supplied to question generation. This behavior has not been validated as psychometric measurement or calibrated against job performance.
 
 ---
 
-### 4. Telemetry & Adversarial AI Script Defense (`analyzer.py`)
+### 4. Optional Browser Interaction Context
 
-Identifies candidates reading real-time ChatGPT / Claude / Copilot responses:
-* **DistilGPT-2 Token Perplexity ($\mathcal{L}$)**: Running locally on CPU:
-
-$$\mathcal{L} = \exp\left(-\frac{1}{N} \sum_{i=1}^N \log P(w_i \mid w_{<i})\right)$$
-
-* **Disfluency Rate**: Natural spontaneous speech exhibits filler words (*"um"*, *"uh"*, *"like"*) and hesitations at a frequency of $0.08 - 0.22$. AI generated text exhibits $\mathcal{L} < 32.0$ with disfluency $< 0.03$.
-* **Classification**: A sustained answer ($>45$ words) exhibiting $\mathcal{L} < 32.0$ with zero natural fillers and formal written discourse markers triggers an AI teleprompter penalty and evidentiary notice in the HR debrief.
-* **Hybrid RRF Semantic Consistency**: Reciprocal Rank Fusion indexing resume claims against verbatim candidate responses via FAISS vector search:
-
-$$\text{RRF}(d) = \sum_{m \in M} \frac{1}{k + r_m(d)}$$
+With the candidate's opt-in, Sasha can record page visibility/focus changes and paste events in the answer field. These browser-reported events do not identify an extension, website, clipboard source, or use of another device. Transcript checks can flag a small set of direct requests for Sasha to provide an answer and statistical answer patterns; a dismissible in-interview notice explains the reason. The report may note when different camera, audio, and answer-text signal types occur within 60 seconds. That timing is context only, not a combined score or confirmation. These checks cannot determine whether a response came from an AI tool or establish cheating.
 
 ---
 
@@ -193,53 +122,19 @@ $$\text{RRF}(d) = \sum_{m \in M} \frac{1}{k + r_m(d)}$$
   * **Pearl**: Soft ivory plush, warm amber underglow, balanced staff interviewer persona.
   * **Indigo**: Deep violet velvet with over-ear studio DJ headphones and audio-reactive soundwave crown.
   * **Onyx**: Charcoal-slate minimal visor bar with horizontal scanner eyes for executive evaluation.
-* **Sub-50ms Conversational Barge-In**: Instant audio interruption allowing candidates to cut in naturally.
+* **Conversational Barge-In**: Candidates can interrupt the interviewer during speech.
 
 ---
 
-### 6. Calibrated 3-Step Conduct & De-Escalation Protocol
+### 6. Conversation Boundary Handling
 
-If a candidate uses abusive, hostile, or profane language toward Sasha, the system enforces a strict 3-step evidentiary protocol:
-
-```
-[Candidate Hostility / Profanity Detected]
-           │
-           ├─► Strike 1: Professional Boundary Prompt (De-Escalation)
-           │            "I am here to ensure a respectful and objective evaluation...
-           │             Turning back to the problem: [Question]"
-           │
-           └─► Strike 2: Immediate Session Termination (end_early)
-                        "Because this evaluation requires professional conduct,
-                         I am going to conclude our interview here."
-                        Clean WebSocket close -> Instant HR Disqualification
-```
-
-All verbatim phrases and timestamps are preserved in the compliance audit table for human recruiter review.
+The interviewer can respond to detected abusive language with a boundary prompt and may end a session after repeated flags. Speech-to-text and conduct heuristics can be wrong; a session ending or conduct flag is not an employment decision.
 
 ---
 
-### 7. Evidentiary Reporting & Governance (`report_generator.py`)
+### 7. Interview Reports (`report_generator.py`)
 
-* Compiles verified telemetry into multi-page audit-grade PDF and HTML reports using PyMuPDF.
-* Fully compliant with **New York City Local Law 144** regulating Automated Employment Decision Tools (AEDT) and the **EU AI Act**:
-  * **Objective Evaluation**: Strictly measures job-relevant technical competency.
-  * **Verbatim Proof Statements**: Every qualitative observation is paired with exact turn numbers, timestamps, and quotes.
-  * **Human-in-the-Loop Authority**: Final hiring decisions remain strictly with human hiring committees.
-
----
-
-## 📊 Empirical Benchmarks
-
-Benchmarked locally on standard 8-core CPU hardware (without dedicated GPU):
-
-| Pipeline Component | Framework / Engine | Execution Latency | Throughput |
-|---|---|---|---|
-| **FaceMesh + Iris Refinement** | MediaPipe 0.10.14 | **13.1 ms / frame** | **~76.2 FPS** |
-| **3D Pose Estimation (PnP)** | OpenCV `solvePnP` | **< 1.8 ms** | > 500 FPS |
-| **Lip-Sync & MAR Delta** | OpenCV Landmarks | **< 0.6 ms** | > 1000 FPS |
-| **Token Perplexity ($\mathcal{L}$)** | PyTorch DistilGPT-2 (CPU) | **42 ms / 50 tokens** | Real-time |
-| **Full-Duplex Barge-In Cutoff** | WebSocket Event Loop | **< 48 ms** | Instant |
-| **Full Vision Proctoring Loop** | Integrated `analyzer.py` | **< 16 ms total** | Well under 1500ms streaming cadence |
+Generates PDF and HTML summaries with turn-by-turn answers, automated rubric estimates, and optional unverified integrity signals. Rubric and job-description matches are review aids, not factual verification, audit evidence, or hiring recommendations. Each rubric estimate points reviewers to a candidate response excerpt.
 
 ---
 
@@ -271,16 +166,29 @@ cd ..
 
 Create a `.env` file in the root directory:
 ```env
-# LLM Providers (Configure at least ONE; system auto-discovers)
-GROQ_API_KEY=your_groq_api_key_here          # Recommended for <1s turn synthesis
+# OpenAI-compatible provider (Gemini example)
+LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+LLM_API_KEY=your_gemini_api_key_here
+LLM_MODEL=gemini-3.5-flash-lite
+LLM_TIMEOUT_SECONDS=15
+LLM_MAX_RETRIES=0
+LLM_REASONING_EFFORT=minimal
+ENABLE_AGENTIC_RESUME_SEARCH=false
+
+# Or configure one of the supported providers instead
+# GROQ_API_KEY=your_groq_api_key_here
 # OPENAI_API_KEY=your_openai_api_key_here     # Supports gpt-4o / gpt-4o-mini
 # GROK_API_KEY=your_grok_api_key_here         # Supports grok-beta
 # OLLAMA_BASE_URL=http://localhost:11434/v1   # 100% offline local model
 
+# Comma-separated browser origins allowed to call the API
+CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+
 # Feature Flags
 ENABLE_VOICE_OUTPUT=true
-ENABLE_PROCTORING=true
 ```
+
+Keep `.env` local and never commit provider keys. The experimental perplexity signal runs automatically when the candidate opts into integrity monitoring. It does not run if the candidate declines; it is still only a review signal, not proof of AI use.
 
 ### 4. Running the Application
 
@@ -311,32 +219,15 @@ python main.py samples/sample_resume.pdf
 
 ---
 
-## 🧪 Automated Test Suite
+## 🧪 Tests
 
-Sasha includes 76 automated unit, integration, and regression tests:
+Run the current test suite locally with:
 
 ```bash
-pytest tests/ -v
+python -m pytest tests/ -v
 ```
 
-```
-============================= test session starts =============================
-collected 76 items
-
-tests\test_agentic_rag.py .....                                          [  6%]
-tests\test_analyzer.py ........                                          [ 17%]
-tests\test_api.py ....                                                   [ 22%]
-tests\test_gaps_4_5_10.py ....................                           [ 48%]
-tests\test_hybrid_rrf.py ....                                            [ 53%]
-tests\test_interviewer_agent.py ....                                     [ 59%]
-tests\test_orchestrator.py .........                                     [ 71%]
-tests\test_report_generator.py .....                                     [ 77%]
-tests\test_research_proctoring.py .........                              [ 89%]
-tests\test_resume_parser.py .....                                        [ 96%]
-tests\test_signal_detector.py ...                                        [100%]
-
-======================= 76 passed in 38.71s =======================
-```
+No test result is claimed here; results depend on the checked-out revision and local environment.
 
 ---
 
@@ -344,10 +235,10 @@ tests\test_signal_detector.py ...                                        [100%]
 
 ```
 Sasha/
-├── analyzer.py                 # Research computer vision (solvePnP, MPIIGaze, EAR, MAR) & NLP
+├── analyzer.py                 # Experimental camera/audio and text analysis
 ├── api.py                      # FastAPI REST & WebSocket orchestrator with ProctorState
-├── interviewer_agent.py        # Adaptive IRT interviewer agent & multi-LLM discovery
-├── report_generator.py         # PyMuPDF executive debrief generator (NYC Local Law 144)
+├── interviewer_agent.py        # Adaptive interviewer and LLM configuration
+├── report_generator.py         # PDF/HTML interview summary generator
 ├── resume_parser.py            # spaCy candidate extraction & 4-digit date tenures
 ├── signal_detector.py          # TF-IDF & Logistic Regression role & seniority classification
 ├── competency_bank.yaml        # Structured technical competencies across SDE, MLE, Devops
@@ -358,15 +249,15 @@ Sasha/
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── SashaPresence.jsx   # Tactile character entity (Pearl, Indigo, Onyx)
-│   │   │   ├── InterviewRoom.jsx   # Full-duplex room, camera proctoring, VU meter
+│   │   │   ├── InterviewRoom.jsx   # Browser speech input/output, camera signals, VU meter
 │   │   │   ├── LobbyView.jsx       # Resume dropzone & target JD configuration
 │   │   │   └── ReportView.jsx      # Interactive debrief viewer & PDF download
 │   │   ├── api.js                  # WebSocket & REST client
 │   │   └── App.jsx
 │   ├── dist/                       # Compiled production bundle
 │   └── package.json
-└── tests/                      # Comprehensive test suite (11 test modules, 76 tests)
-    ├── test_research_proctoring.py # Unit tests for Euler angles, MPIIGaze, MAR
+└── tests/                      # Automated tests
+    ├── test_research_proctoring.py # Experimental camera-signal tests
     ├── test_api.py                 # REST & WebSocket integration tests
     ├── test_report_generator.py    # PDF rendering & integrity incident tests
     └── ...
@@ -374,13 +265,23 @@ Sasha/
 
 ---
 
-## ⚖️ Legal & Regulatory Compliance (NYC Local Law 144)
+## ⚠️ Use Limitations
 
-Sasha is architected to comply with **New York City Local Law 144** regulating Automated Employment Decision Tools (AEDT) and the **EU AI Act**:
+Sasha is a prototype and has not been independently validated or audited for employment decisions. Interview sessions are held in server memory and are not durable across server restarts. Employers must assess their own legal, privacy, accessibility, and security obligations before using interview data in a hiring process. Do not use automated scores or integrity signals as the sole basis for an employment decision.
 
-1. **Anti-Bias Disclosures**: All evaluations measure strictly objective, job-relevant technical signals (depth of explanation, architectural trade-offs, verifiable claim consistency).
-2. **Transparent Evidentiary Logging**: Behavioral and integrity flags (head turns, proxy speakers, teleprompters) record exact timestamps and mathematical proof statements without opaque black-box scoring.
-3. **Human-in-the-Loop Decision Rights**: Sasha acts strictly as an evaluative decision-support instrument. Final hiring, rejection, and leveling authority remains with human hiring committees.
+Interview reports and consented camera evidence are kept in a private, non-static directory with no-store download headers and 30-day cleanup. This is prototype hardening, not production security: the app still needs authenticated recruiter authorization, TLS, encrypted storage, and auditable access controls before handling real candidate data.
+
+### Realtime status and next steps
+
+Sasha uses browser speech recognition for an incremental transcript and sends the completed answer over a WebSocket. Candidates can optionally enable auto-send after 1.8 seconds without a transcript update; it is off by default. The server acknowledges processing, rejects overlapping WebSocket turns, reports per-turn processing time, and accepts an interrupt while the turn task is awaiting work. In the default LLM path, the server streams partial next-question text to the UI while it collects the remaining assessment JSON; question speech starts only after the full decision arrives. The browser reports last-turn latency and session p50/p95 over up to 20 scored turns. These are in-session diagnostics, not a controlled performance benchmark.
+
+The app still does not stream raw microphone audio to the server or stream synthesized reply audio. Only candidate-facing question text is progressively displayed; assessments and speech playback wait for the complete interviewer decision. Agentic resume-search mode also uses a non-streaming path. Cancelling a Python task cannot stop a provider request already running in a worker thread. Browser speech recognition and speech synthesis support vary by browser and operating system.
+
+Latency work in the current path avoids loading DistilGPT-2 at startup and runs that signal only for candidates who opt into monitoring. For those sessions, the model loads on the first opted-in answer and its inference adds processing time. Repeated resume embeddings are cached with a bounded cache. Perplexity remains an experimental review signal and is not proof of AI use.
+
+The next real-time milestones are server-side or provider-backed streaming ASR with a replaceable adapter; incremental interviewer text and audio playback; cancellation that stops provider generation and drains playback; and repeatable TTFR/p50/p95 benchmarks under warm and cold conditions. Gesture realism stays a separate layer after those milestones: add a small number of avatar expressions and gestures synchronized to speaking/listening/acknowledgment states. Keep avatar animation separate from candidate emotion inference.
+
+The [Real-Time Conversational AI Commentator](https://github.com/sushant-mishra-dtu/Real-Time-Conversational-AI-Commentator) is an architecture reference for server-owned state, VAD, audio queues, interruption handling, model adapters, and race testing. Its performance claims have not been independently measured as part of this project.
 
 ---
 

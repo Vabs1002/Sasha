@@ -16,12 +16,14 @@ export async function checkHealth() {
   }
 }
 
-export async function startInterview(resumeFile, jdText = '') {
+export async function startInterview(resumeFile, jdText = '', integrityMonitoringConsent = false, evidenceCaptureConsent = false) {
   const formData = new FormData();
   formData.append('resume_file', resumeFile);
   if (jdText && jdText.trim()) {
     formData.append('jd_text', jdText.trim());
   }
+  formData.append('integrity_monitoring_consent', String(integrityMonitoringConsent));
+  formData.append('evidence_capture_consent', String(evidenceCaptureConsent && integrityMonitoringConsent));
 
   const res = await fetch(`${API_BASE}/api/v1/interview/start`, {
     method: 'POST',
@@ -34,6 +36,38 @@ export async function startInterview(resumeFile, jdText = '') {
   }
 
   return await res.json();
+}
+
+export async function uploadInterviewEvidence(sessionId, signal, snapshot, clip) {
+  const formData = new FormData();
+  formData.append('signal', signal);
+  if (snapshot) formData.append('snapshot', snapshot, 'camera-still.jpg');
+  if (clip) formData.append('clip', clip, 'camera-context.webm');
+  const res = await fetch(`${API_BASE}/api/v1/interview/${sessionId}/evidence`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to save camera evidence.');
+  }
+  return await res.json();
+}
+
+export async function getInterviewEvidence(sessionId) {
+  const res = await fetch(`${API_BASE}/api/v1/interview/${sessionId}/evidence`);
+  if (!res.ok) throw new Error('Failed to retrieve camera evidence');
+  return await res.json();
+}
+
+export async function deleteInterviewEvidence(sessionId, captureId) {
+  const res = await fetch(`${API_BASE}/api/v1/interview/${sessionId}/evidence/${captureId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete camera evidence');
+  return await res.json();
+}
+
+export function resolveApiUrl(path) {
+  return new URL(path, `${API_BASE}/`).toString();
 }
 
 export async function submitTurn(sessionId, answerText) {

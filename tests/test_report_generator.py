@@ -10,9 +10,9 @@ from report_generator import generate_report, _derive_qualitative_tier, _extract
 
 
 def test_derive_qualitative_tier():
-    assert _derive_qualitative_tier(8.5) == "Demonstrated Strength"
-    assert _derive_qualitative_tier(6.0) == "Meets Expectations"
-    assert _derive_qualitative_tier(4.0) == "Area for Targeted Probing"
+    assert _derive_qualitative_tier(8.5) == "Higher rubric estimate"
+    assert _derive_qualitative_tier(6.0) == "Mid-range rubric estimate"
+    assert _derive_qualitative_tier(4.0) == "Lower rubric estimate"
 
 
 def test_generate_report_empty_history_returns_false():
@@ -95,4 +95,4 @@ def test_build_competency_sections():
     # Verify no raw numbers are in titles or tiers
     for sec in sections:
         assert "/10" not in sec["tier"]
-        assert sec["tier"] in ["Demonstrated Strength", "Meets Expectations", "Area for Targeted Probing"]
+        assert sec["tier"] in ["Higher rubric estimate", "Mid-range rubric estimate", "Lower rubric estimate"]

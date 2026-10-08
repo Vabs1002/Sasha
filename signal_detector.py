@@ -11,8 +11,9 @@ from typing import Dict, Any, Tuple, Union
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = "role_detector_model.pkl"
-VECTORIZER_PATH = "tfidf_vectorizer.pkl"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "role_detector_model.pkl")
+VECTORIZER_PATH = os.path.join(BASE_DIR, "tfidf_vectorizer.pkl")
 
 def load_or_train_model(signals_dict: Dict[str, Any]) -> Tuple[LogisticRegression, TfidfVectorizer]:
     """
